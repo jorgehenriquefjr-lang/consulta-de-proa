@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: consulta-proas-backend
+    env: python
+    plan: free
+    rootDir: render_backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    envVars:
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false

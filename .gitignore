@@ -1,0 +1,16 @@
+# Credenciais - NUNCA versionar
+*firebase-adminsdk*.json
+*serviceAccountKey*.json
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.db
+
+# Node / Firebase
+node_modules/
+.firebase/
+firebase-debug.log
+firestore-debug.log

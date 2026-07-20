@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Consulta de Proa - SBNV</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <header>
+    <div class="brand">
+      <span class="brand-icon">✈</span>
+      <div>
+        <h1>Consulta de Proa Magnética</h1>
+        <p class="subtitle">Origem fixa · <strong>SBNV</strong> — Aeródromo Nacional de Aviação, Goiânia/GO</p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="card search-card">
+      <form id="search-form">
+        <div class="input-wrap">
+          <span class="input-icon">⌕</span>
+          <input id="icao-input" placeholder="IND LOC (ex.: SBGR) ou coordenada (ex.: 1526S05024W)" maxlength="24" autocomplete="off" required>
+        </div>
+        <button type="submit"><span>Buscar</span></button>
+      </form>
+      <p id="status" class="status"></p>
+    </section>
+
+    <section id="result-card" class="card result hidden">
+      <div class="result-header">
+        <h2 id="result-name"></h2>
+        <p id="result-sub" class="subtitle"></p>
+      </div>
+      <div class="grid">
+        <div class="stat stat-primary">
+          <span class="stat-icon">🧭</span>
+          <span class="label">Proa Magnética</span>
+          <span id="result-proa" class="value"></span>
+        </div>
+        <div class="stat stat-primary">
+          <span class="stat-icon">📏</span>
+          <span class="label">Distância</span>
+          <span id="result-milhas" class="value"></span>
+        </div>
+        <div class="stat">
+          <span class="label">Proa Verdadeira</span>
+          <span id="result-true" class="value-sm"></span>
+        </div>
+        <div class="stat">
+          <span class="label">Declinação Magnética</span>
+          <span id="result-decl" class="value-sm"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Rota do FPL (Campo 15)</h3>
+      <form id="rota-form">
+        <div class="input-wrap">
+          <textarea id="rota-input" rows="3" placeholder="Cole o Campo 15 do FPL (ex.: 1622S04930W/N0230F270 IFR DCT MILIX/N0280F300 DCT UGUGA/N0300F310 DCT SEBNO DCT VUNIX/N0230F135 VFR DCT)"></textarea>
+        </div>
+        <button type="submit"><span>Traçar rota</span></button>
+      </form>
+      <p id="rota-status" class="status"></p>
+    </section>
+
+    <section class="card map-card">
+      <div class="map-card-header">
+        <h3>Traçado da rota</h3>
+        <span class="map-legend"><i class="dot origin"></i> SBNV <i class="dot dest"></i> Destino <i class="dot fix"></i> Fixo</span>
+      </div>
+      <div id="map"></div>
+    </section>
+
+    <section class="card">
+      <h3>Histórico de consultas</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Quando (UTC)</th><th>IND LOC</th><th>Nome</th><th>Proa Mag.</th><th>Milhas</th></tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+        <p id="history-empty" class="empty-hint hidden">Nenhuma consulta ainda — busque um IND LOC acima.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Dados de aeródromo via AISWEB/DECEA · Declinação magnética via NOAA WMM</p>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>
