@@ -14,7 +14,9 @@ const rotaStatusEl = document.getElementById("rota-status");
 // Gere sua chave grátis em openaip.net (conta > API keys) e cole aqui.
 const OPENAIP_API_KEY = "c78fad77a276a17e092101fc1c2753b4";
 
-const map = L.map("map").setView([-16.625556, -49.349444], 5);
+const ORIGEM = { icao: "SBNV", lat: -16.625556, lon: -49.349444 };
+
+const map = L.map("map").setView([ORIGEM.lat, ORIGEM.lon], 5);
 
 const baseLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
   maxZoom: 17,
@@ -37,12 +39,13 @@ L.control
   .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, { collapsed: false })
   .addTo(map);
 
-let originMarker = L.marker([-16.625556, -49.349444])
+let originMarker = L.marker([ORIGEM.lat, ORIGEM.lon])
   .addTo(map)
   .bindPopup("SBNV - Aeródromo Nacional de Aviação (Goiânia/GO)");
 
 let destMarker = null;
 let routeLine = null;
+let lastDestino = null;
 const fplLayer = L.layerGroup().addTo(map);
 
 function setStatus(text, kind) {
@@ -55,8 +58,16 @@ function setRotaStatus(text, kind) {
   rotaStatusEl.className = "status" + (kind ? " " + kind : "");
 }
 
-function drawFplRoute(pontos) {
+function drawFplRoute(pontosRota) {
   fplLayer.clearLayers();
+
+  const pontos = [
+    { ident: ORIGEM.icao, tipo: "origem", lat: ORIGEM.lat, lon: ORIGEM.lon },
+    ...pontosRota,
+    ...(lastDestino
+      ? [{ ident: lastDestino.icao, tipo: "destino", lat: lastDestino.lat, lon: lastDestino.lon }]
+      : []),
+  ];
 
   pontos.forEach((p, i) => {
     const isEndpoint = i === 0 || i === pontos.length - 1;
@@ -102,6 +113,7 @@ function formatHeading(deg) {
 }
 
 function showResult(data) {
+  lastDestino = data.destino;
   resultCard.classList.remove("hidden");
   document.getElementById("result-name").textContent =
     `${data.destino.icao} - ${data.destino.name}`;
