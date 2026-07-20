@@ -1,7 +1,4 @@
-// TESTE LOCAL: apontando pro backend rodando em http://127.0.0.1:5057
-// Troque pela URL do Render (ex.: "https://consulta-proas-backend.onrender.com")
-// antes de publicar de verdade.
-const API_BASE = "http://127.0.0.1:5057";
+const API_BASE = "https://consulta-proas-backend.onrender.com";
 
 const form = document.getElementById("search-form");
 const input = document.getElementById("icao-input");
