@@ -182,6 +182,12 @@ async function buscarProa(raw) {
   const params = new URLSearchParams({ icao });
   if (icao === "ZZZZ") params.set("coord", coord);
 
+  // O backend gratuito "dorme" após um tempo sem uso e pode levar até um
+  // minuto para acordar na primeira consulta; avisa se estiver demorando.
+  const slowHint = setTimeout(() => {
+    setStatus("Ainda consultando... o servidor pode estar iniciando após ficar inativo (até ~1 min).", "loading");
+  }, 4000);
+
   try {
     const resp = await fetch(`${API_BASE}/api/buscar_proa?${params.toString()}`);
     const data = await resp.json();
@@ -194,6 +200,8 @@ async function buscarProa(raw) {
     loadHistory();
   } catch (e) {
     setStatus("Falha de conexão com o servidor.", "error");
+  } finally {
+    clearTimeout(slowHint);
   }
 }
 

@@ -3,6 +3,7 @@ import math
 import os
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 import firebase_admin
@@ -72,6 +73,14 @@ STATE_RE = re.compile(r'title="Estado">([^<]+)</span>')
 
 EARTH_RADIUS_NM = 3440.065
 
+# ====== Cache em memória: evita repetir consultas lentas ao AISWEB/NOAA ======
+_cache_lock = threading.Lock()
+_aerodromo_cache = {}  # icao -> (expira_em, dado)
+_declinacao_cache = {}  # (lat_arredondado, lon_arredondado) -> (expira_em, valor)
+AERODROMO_CACHE_TTL = 24 * 3600
+DECLINACAO_CACHE_TTL = 7 * 24 * 3600
+DECLINACAO_FALLBACK_TTL = 300  # tenta a NOAA de novo em breve se ela estava fora do ar
+
 
 def dms_to_dd(deg: str, minutes: str, seconds: str, hemisphere: str) -> float:
     dd = int(deg) + int(minutes) / 60 + float(seconds) / 3600
@@ -110,6 +119,12 @@ def parse_fpl_coord(coord: str):
 
 
 def fetch_aerodromo(icao: str):
+    now = time.time()
+    with _cache_lock:
+        cached = _aerodromo_cache.get(icao)
+        if cached and cached[0] > now:
+            return cached[1]
+
     url = f"https://aisweb.decea.mil.br/?i=aerodromos&codigo={icao}"
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
     resp.raise_for_status()
@@ -126,7 +141,7 @@ def fetch_aerodromo(icao: str):
     lat = dms_to_dd(*coord_m.group(1, 2, 3), coord_m.group(4))
     lon = dms_to_dd(*coord_m.group(5, 6, 7), coord_m.group(8))
 
-    return {
+    aerodromo = {
         "icao": icao,
         "name": name_m.group(1).strip(),
         "city": city_m.group(1).strip() if city_m else "",
@@ -134,6 +149,10 @@ def fetch_aerodromo(icao: str):
         "lat": lat,
         "lon": lon,
     }
+
+    with _cache_lock:
+        _aerodromo_cache[icao] = (now + AERODROMO_CACHE_TTL, aerodromo)
+    return aerodromo
 
 
 def lookup_fixes(idents: list[str]) -> dict:
@@ -224,6 +243,13 @@ def great_circle(lat1: float, lon1: float, lat2: float, lon2: float):
 
 
 def magnetic_declination(lat: float, lon: float) -> float:
+    key = (round(lat, 1), round(lon, 1))
+    now = time.time()
+    with _cache_lock:
+        cached = _declinacao_cache.get(key)
+        if cached and cached[0] > now:
+            return cached[1]
+
     try:
         today = datetime.now(timezone.utc)
         url = (
@@ -234,9 +260,15 @@ def magnetic_declination(lat: float, lon: float) -> float:
         )
         r = requests.get(url, timeout=6)
         r.raise_for_status()
-        return float(r.json()["result"][0]["declination"])
+        value = float(r.json()["result"][0]["declination"])
+        ttl = DECLINACAO_CACHE_TTL
     except Exception:
-        return DECLINACAO_FALLBACK
+        value = DECLINACAO_FALLBACK
+        ttl = DECLINACAO_FALLBACK_TTL
+
+    with _cache_lock:
+        _declinacao_cache[key] = (now + ttl, value)
+    return value
 
 
 @app.route("/")
