@@ -42,6 +42,14 @@ ORIGEM = {
 
 DECLINACAO_FALLBACK = -21.6  # aproximada em SBNV (WMM 2025), usada só se a NOAA falhar
 
+# Pontos de referência VFR salvos (coordenada do Campo 18 -> nome amigável),
+# para exibir o nome certo em vez do genérico "Localidade sem indicador".
+KNOWN_POINTS = {
+    "164527S0492608W": {"name": "ABADIA DE GOIÁS", "city": "ABADIA DE GOIÁS", "state": "GO"},
+    "164110S0491818W": {"name": "HIPÓDROMO", "city": "GOIÂNIA", "state": "GO"},
+    "163800S0492800W": {"name": "PORTÃO TRINDADE", "city": "TRINDADE", "state": "GO"},
+}
+
 ICAO_RE = re.compile(r"^[A-Z0-9]{3,6}$")
 COORD_RE = re.compile(
     r"(\d{2})\s?(\d{2})\s?(\d{2}(?:\.\d+)?)([NS])\s*/\s*(\d{3})\s?(\d{2})\s?(\d{2}(?:\.\d+)?)([EW])"
@@ -255,11 +263,12 @@ def buscar_proa():
                          "com ou sem segundos (ex.: 1454S05104W ou 145430S0510422W)."
             }), 400
         lat, lon = parsed
+        known = KNOWN_POINTS.get(coord_raw)
         destino = {
             "icao": "ZZZZ",
-            "name": "Localidade sem indicador (coordenadas do Campo 18)",
-            "city": "",
-            "state": "",
+            "name": known["name"] if known else "Localidade sem indicador (coordenadas do Campo 18)",
+            "city": known["city"] if known else "",
+            "state": known["state"] if known else "",
             "lat": lat,
             "lon": lon,
         }

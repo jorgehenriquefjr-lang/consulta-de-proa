@@ -185,6 +185,18 @@ button {
 button:hover { transform: translateY(-1px); box-shadow: 0 14px 24px -8px rgba(37, 99, 235, 0.32); }
 button:active { transform: translateY(0); }
 
+.saved-points { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.chip {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--bg-alt);
+  color: var(--text);
+  box-shadow: none;
+}
+.chip:hover { transform: translateY(-1px); box-shadow: 0 6px 14px -8px rgba(15, 23, 42, 0.25); }
+
 .status { min-height: 20px; margin: 14px 0 0; font-size: 14px; color: var(--text-dim); }
 .status.error { color: var(--danger); }
 .status.loading { color: var(--accent); }

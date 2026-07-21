@@ -158,9 +158,8 @@ async function loadHistory() {
 // (ex.: 1454S05104W ou 145430S0510422W)
 const FPL_COORD_REGEX = /^(?:\d{4}[NS]\d{5}|\d{6}[NS]\d{7})[EW]$/;
 
-form.addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const raw = input.value.trim().toUpperCase().replace(/\s+/g, "");
+async function buscarProa(raw) {
+  raw = raw.trim().toUpperCase().replace(/\s+/g, "");
   if (!raw) return;
 
   let icao, coord;
@@ -196,6 +195,19 @@ form.addEventListener("submit", async (ev) => {
   } catch (e) {
     setStatus("Falha de conexão com o servidor.", "error");
   }
+}
+
+form.addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  buscarProa(input.value);
+});
+
+document.querySelectorAll("#saved-points .chip").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const coord = btn.dataset.coord;
+    input.value = coord;
+    buscarProa(coord);
+  });
 });
 
 rotaForm.addEventListener("submit", async (ev) => {
