@@ -154,8 +154,9 @@ async function loadHistory() {
   }
 }
 
-// Coordenada do Campo 18 do FPL, sem segundos (ex.: 1454S05104W ou 1526S05024W)
-const FPL_COORD_REGEX = /^\d{4}[NS]\d{5}[EW]$/;
+// Coordenada do Campo 18 do FPL, com ou sem segundos
+// (ex.: 1454S05104W ou 145430S0510422W)
+const FPL_COORD_REGEX = /^(?:\d{4}[NS]\d{5}|\d{6}[NS]\d{7})[EW]$/;
 
 form.addEventListener("submit", async (ev) => {
   ev.preventDefault();

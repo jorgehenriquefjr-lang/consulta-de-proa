@@ -46,8 +46,10 @@ ICAO_RE = re.compile(r"^[A-Z0-9]{3,6}$")
 COORD_RE = re.compile(
     r"(\d{2})\s?(\d{2})\s?(\d{2}(?:\.\d+)?)([NS])\s*/\s*(\d{3})\s?(\d{2})\s?(\d{2}(?:\.\d+)?)([EW])"
 )
-# Coordenada do Campo 18 do FPL (sem segundos), ex.: "1454S05104W"
+# Coordenada do Campo 18 do FPL, sem segundos, ex.: "1454S05104W"
 FPL_COORD_RE = re.compile(r"^(\d{2})(\d{2})([NS])(\d{3})(\d{2})([EW])$")
+# Mesma coordenada, com segundos, ex.: "164527S0492608W"
+FPL_COORD_SEC_RE = re.compile(r"^(\d{2})(\d{2})(\d{2})([NS])(\d{3})(\d{2})(\d{2})([EW])$")
 
 # ====== Campo 15 do FPL (rota): fixos nomeados, DCT, velocidade/nível ======
 FIXES_WFS_URL = "https://geoaisweb.decea.gov.br/geoserver/ICA/wfs"
@@ -70,7 +72,22 @@ def dms_to_dd(deg: str, minutes: str, seconds: str, hemisphere: str) -> float:
     return dd
 
 
+def is_fpl_coord(token: str) -> bool:
+    return bool(FPL_COORD_SEC_RE.match(token) or FPL_COORD_RE.match(token))
+
+
 def parse_fpl_coord(coord: str):
+    m = FPL_COORD_SEC_RE.match(coord)
+    if m:
+        lat_deg, lat_min, lat_sec, lat_h, lon_deg, lon_min, lon_sec, lon_h = m.groups()
+        lat = int(lat_deg) + int(lat_min) / 60 + int(lat_sec) / 3600
+        if lat_h == "S":
+            lat = -lat
+        lon = int(lon_deg) + int(lon_min) / 60 + int(lon_sec) / 3600
+        if lon_h == "W":
+            lon = -lon
+        return lat, lon
+
     m = FPL_COORD_RE.match(coord)
     if not m:
         return None
@@ -156,7 +173,7 @@ def parse_route(rota: str):
         ident = tok.split("/", 1)[0]
         if not ident or ident in ROUTE_SKIP_TOKENS or STAY_RE.match(ident) or SPEED_LEVEL_RE.match(ident):
             continue
-        if FPL_COORD_RE.match(ident):
+        if is_fpl_coord(ident):
             parsed_tokens.append((ident, "coord"))
         elif FIX_IDENT_RE.match(ident):
             parsed_tokens.append((ident, "fix"))
@@ -224,7 +241,7 @@ def buscar_proa():
     icao = (request.args.get("icao") or "").strip().upper()
 
     # Se vier só a coordenada no campo icao (sem ZZZZ), trata como Campo 18 também
-    if FPL_COORD_RE.match(icao.replace(" ", "")):
+    if is_fpl_coord(icao.replace(" ", "")):
         icao, coord_override = "ZZZZ", icao.replace(" ", "")
     else:
         coord_override = None
@@ -235,7 +252,7 @@ def buscar_proa():
         if not parsed:
             return jsonify({
                 "error": "Coordenada inválida para ZZZZ. Use o formato do Campo 18 do FPL, "
-                         "sem segundos (ex.: 1454S05104W)."
+                         "com ou sem segundos (ex.: 1454S05104W ou 145430S0510422W)."
             }), 400
         lat, lon = parsed
         destino = {
