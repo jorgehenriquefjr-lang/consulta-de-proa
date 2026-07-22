@@ -117,6 +117,20 @@ body {
   display: flex;
   align-items: center;
 }
+.route-label.leaflet-tooltip {
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  box-shadow: 0 6px 14px -6px rgba(15, 23, 42, 0.35);
+  white-space: nowrap;
+}
+.route-label.leaflet-tooltip::before { display: none; }
+
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin: 0 6px 0 10px; }
 .dot:first-child { margin-left: 0; }
 .dot.origin { background: var(--accent); }

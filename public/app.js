@@ -103,7 +103,7 @@ function drawFplRoute(pontosRota) {
   map.fitBounds(line.getBounds(), { padding: [30, 30] });
 }
 
-function drawRoute(origem, destino) {
+function drawRoute(origem, destino, proaMagnetica, distanciaNm) {
   if (destMarker) map.removeLayer(destMarker);
   if (routeLine) map.removeLayer(routeLine);
 
@@ -118,6 +118,14 @@ function drawRoute(origem, destino) {
     ],
     { color: "#1d4ed8", weight: 3 }
   ).addTo(map);
+
+  routeLine
+    .bindTooltip(`${formatHeading(proaMagnetica)} · ${distanciaNm.toFixed(1)} NM`, {
+      permanent: true,
+      direction: "center",
+      className: "route-label",
+    })
+    .openTooltip();
 
   map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
 }
@@ -143,7 +151,7 @@ function showResult(data) {
   document.getElementById("result-decl").textContent =
     `${data.declinacao_magnetica.toFixed(1)}°`;
 
-  drawRoute(data.origem, data.destino);
+  drawRoute(data.origem, data.destino, data.proa_magnetica, data.distancia_nm);
 }
 
 async function loadHistory() {
