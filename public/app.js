@@ -35,8 +35,39 @@ const openAipLayer = L.tileLayer(
   }
 );
 
+// Cartas oficiais do DECEA (GeoAISWEB), cobrindo a região de SBNV (Goiânia/GO)
+const GEOAISWEB_WMS = "https://geoaisweb.decea.gov.br/geoserver/ICA/wms";
+function decealChartLayer(layerName) {
+  return L.tileLayer.wms(GEOAISWEB_WMS, {
+    layers: layerName,
+    format: "image/png",
+    transparent: true,
+    version: "1.1.0",
+    attribution: "Cartas aeronáuticas &copy; DECEA",
+  });
+}
+
+const arcAnapolisLayer = decealChartLayer("ICA:ARC_ANAPOLIS");
+const enrcL5Layer = decealChartLayer("ICA:ENRC_L5");
+const enrcH5Layer = decealChartLayer("ICA:ENRC_H5");
+const ctrLayer = decealChartLayer("ICA:CTR");
+const ctaLayer = decealChartLayer("ICA:CTA");
+const atzLayer = decealChartLayer("ICA:ATZ");
+
 L.control
-  .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, { collapsed: false })
+  .layers(
+    null,
+    {
+      "Espaço aéreo (OpenAIP)": openAipLayer,
+      "Carta Visual (ARC Anápolis)": arcAnapolisLayer,
+      "Carta IFR rota baixa (ENRC L5)": enrcL5Layer,
+      "Carta IFR rota alta (ENRC H5)": enrcH5Layer,
+      "CTR": ctrLayer,
+      "CTA": ctaLayer,
+      "ATZ": atzLayer,
+    },
+    { collapsed: true }
+  )
   .addTo(map);
 
 let originMarker = L.marker([ORIGEM.lat, ORIGEM.lon])
