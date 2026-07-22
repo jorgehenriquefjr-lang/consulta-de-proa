@@ -12,120 +12,123 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="bg-glow" aria-hidden="true"></div>
+  <div class="app-shell">
+    <header class="toolbar">
+      <div class="brand">
+        <span class="brand-icon">✈</span>
+        <div class="brand-text">
+          <strong>Consulta de Proa</strong>
+          <span>Origem fixa · SBNV — Goiânia/GO</span>
+        </div>
+      </div>
+      <nav class="toolbar-tools">
+        <button type="button" class="tool-btn active" data-tab="buscar">⌕ <span class="tool-btn-label">Buscar</span></button>
+        <button type="button" class="tool-btn" data-tab="rota">✈ <span class="tool-btn-label">Rota FPL</span></button>
+        <button type="button" class="tool-btn" data-tab="camadas">☰ <span class="tool-btn-label">Camadas</span></button>
+        <button type="button" class="tool-btn" data-tab="historico">🕐 <span class="tool-btn-label">Histórico</span></button>
+      </nav>
+    </header>
 
-  <header>
-    <div class="brand">
-      <span class="brand-icon">✈</span>
-      <div>
-        <h1>Consulta de Proa Magnética</h1>
-        <p class="subtitle">Origem fixa · <strong>SBNV</strong> — Aeródromo Nacional de Aviação, Goiânia/GO</p>
+    <div class="map-stage">
+      <aside id="tool-panel" class="tool-panel">
+        <div class="tool-panel-header">
+          <div class="tool-panel-tabs">
+            <button type="button" class="tool-tab active" data-tab="buscar" title="Buscar">⌕</button>
+            <button type="button" class="tool-tab" data-tab="rota" title="Rota FPL">✈</button>
+            <button type="button" class="tool-tab" data-tab="camadas" title="Camadas">☰</button>
+            <button type="button" class="tool-tab" data-tab="selecionadas" title="Selecionadas">✓</button>
+            <button type="button" class="tool-tab" data-tab="historico" title="Histórico">🕐</button>
+          </div>
+          <button id="tool-panel-close" class="layers-close-btn" type="button" aria-label="Fechar">✕</button>
+        </div>
+
+        <div class="tool-panel-body">
+          <div id="tab-buscar" class="tool-tab-panel">
+            <form id="search-form">
+              <div class="input-wrap">
+                <span class="input-icon">⌕</span>
+                <input id="icao-input" placeholder="IND LOC (ex.: SBGR) ou coordenada" maxlength="24" autocomplete="off" required>
+              </div>
+              <button type="submit"><span>Buscar</span></button>
+            </form>
+            <div id="saved-points" class="saved-points">
+              <button type="button" class="chip" data-coord="164527S0492608W">Abadia de Goiás</button>
+              <button type="button" class="chip" data-coord="164110S0491818W">Hipódromo</button>
+              <button type="button" class="chip" data-coord="163800S0492800W">Portão Trindade</button>
+            </div>
+            <p id="status" class="status"></p>
+
+            <section id="result-card" class="result hidden">
+              <div class="result-header">
+                <h2 id="result-name"></h2>
+                <p id="result-sub" class="subtitle"></p>
+              </div>
+              <div class="grid">
+                <div class="stat stat-primary">
+                  <span class="stat-icon">🧭</span>
+                  <span class="label">Proa Magnética</span>
+                  <span id="result-proa" class="value"></span>
+                </div>
+                <div class="stat stat-primary">
+                  <span class="stat-icon">📏</span>
+                  <span class="label">Distância</span>
+                  <span id="result-milhas" class="value"></span>
+                </div>
+                <div class="stat">
+                  <span class="label">Proa Verdadeira</span>
+                  <span id="result-true" class="value-sm"></span>
+                </div>
+                <div class="stat">
+                  <span class="label">Declinação Magnética</span>
+                  <span id="result-decl" class="value-sm"></span>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div id="tab-rota" class="tool-tab-panel hidden">
+            <h3>Rota do FPL (Campo 15)</h3>
+            <form id="rota-form">
+              <div class="input-wrap">
+                <textarea id="rota-input" rows="4" placeholder="Cole o Campo 15 do FPL (ex.: 1622S04930W/N0230F270 IFR DCT MILIX/N0280F300 DCT UGUGA/N0300F310 DCT SEBNO DCT VUNIX/N0230F135 VFR DCT)"></textarea>
+              </div>
+              <button type="submit"><span>Traçar rota</span></button>
+            </form>
+            <p id="rota-status" class="status"></p>
+          </div>
+
+          <div id="tab-camadas" class="tool-tab-panel hidden">
+            <input id="layers-search" class="layers-search" placeholder="Buscar camada...">
+            <div id="layers-tree" class="layers-tree"></div>
+          </div>
+
+          <div id="tab-selecionadas" class="tool-tab-panel hidden">
+            <ul id="layers-selected-list" class="layers-selected-list"></ul>
+            <p id="layers-selected-empty" class="empty-hint">Nenhuma camada ativa.</p>
+          </div>
+
+          <div id="tab-historico" class="tool-tab-panel hidden">
+            <h3>Histórico de consultas</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Quando (UTC)</th><th>IND LOC</th><th>Nome</th><th>Proa Mag.</th><th>Milhas</th></tr>
+                </thead>
+                <tbody id="history-body"></tbody>
+              </table>
+              <p id="history-empty" class="empty-hint hidden">Nenhuma consulta ainda — busque um IND LOC acima.</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div id="map"></div>
+
+      <div class="map-legend-badge">
+        <i class="dot origin"></i> SBNV <i class="dot dest"></i> Destino <i class="dot fix"></i> Fixo
       </div>
     </div>
-  </header>
-
-  <main>
-    <section class="card search-card">
-      <form id="search-form">
-        <div class="input-wrap">
-          <span class="input-icon">⌕</span>
-          <input id="icao-input" placeholder="IND LOC (ex.: SBGR) ou coordenada (ex.: 1526S05024W)" maxlength="24" autocomplete="off" required>
-        </div>
-        <button type="submit"><span>Buscar</span></button>
-      </form>
-      <div id="saved-points" class="saved-points">
-        <button type="button" class="chip" data-coord="164527S0492608W">Abadia de Goiás</button>
-        <button type="button" class="chip" data-coord="164110S0491818W">Hipódromo</button>
-        <button type="button" class="chip" data-coord="163800S0492800W">Portão Trindade</button>
-      </div>
-      <p id="status" class="status"></p>
-    </section>
-
-    <section id="result-card" class="card result hidden">
-      <div class="result-header">
-        <h2 id="result-name"></h2>
-        <p id="result-sub" class="subtitle"></p>
-      </div>
-      <div class="grid">
-        <div class="stat stat-primary">
-          <span class="stat-icon">🧭</span>
-          <span class="label">Proa Magnética</span>
-          <span id="result-proa" class="value"></span>
-        </div>
-        <div class="stat stat-primary">
-          <span class="stat-icon">📏</span>
-          <span class="label">Distância</span>
-          <span id="result-milhas" class="value"></span>
-        </div>
-        <div class="stat">
-          <span class="label">Proa Verdadeira</span>
-          <span id="result-true" class="value-sm"></span>
-        </div>
-        <div class="stat">
-          <span class="label">Declinação Magnética</span>
-          <span id="result-decl" class="value-sm"></span>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h3>Rota do FPL (Campo 15)</h3>
-      <form id="rota-form">
-        <div class="input-wrap">
-          <textarea id="rota-input" rows="3" placeholder="Cole o Campo 15 do FPL (ex.: 1622S04930W/N0230F270 IFR DCT MILIX/N0280F300 DCT UGUGA/N0300F310 DCT SEBNO DCT VUNIX/N0230F135 VFR DCT)"></textarea>
-        </div>
-        <button type="submit"><span>Traçar rota</span></button>
-      </form>
-      <p id="rota-status" class="status"></p>
-    </section>
-
-    <section class="card map-card">
-      <div class="map-card-header">
-        <h3>Traçado da rota</h3>
-        <span class="map-legend"><i class="dot origin"></i> SBNV <i class="dot dest"></i> Destino <i class="dot fix"></i> Fixo</span>
-      </div>
-      <div class="map-wrap">
-        <button id="layers-toggle" class="layers-toggle-btn" type="button" title="Camadas aeronáuticas">☰ Camadas</button>
-        <aside id="layers-panel" class="layers-panel hidden">
-          <div class="layers-panel-header">
-            <div class="layers-tabs">
-              <button type="button" class="layers-tab active" data-tab="camadas">Camadas</button>
-              <button type="button" class="layers-tab" data-tab="selecionadas">Selecionadas</button>
-            </div>
-            <button id="layers-close" class="layers-close-btn" type="button" aria-label="Fechar">✕</button>
-          </div>
-          <div class="layers-panel-body">
-            <div id="layers-tab-camadas" class="layers-tab-panel">
-              <input id="layers-search" class="layers-search" placeholder="Buscar camada...">
-              <div id="layers-tree" class="layers-tree"></div>
-            </div>
-            <div id="layers-tab-selecionadas" class="layers-tab-panel hidden">
-              <ul id="layers-selected-list" class="layers-selected-list"></ul>
-              <p id="layers-selected-empty" class="empty-hint">Nenhuma camada ativa.</p>
-            </div>
-          </div>
-        </aside>
-        <div id="map"></div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h3>Histórico de consultas</h3>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Quando (UTC)</th><th>IND LOC</th><th>Nome</th><th>Proa Mag.</th><th>Milhas</th></tr>
-          </thead>
-          <tbody id="history-body"></tbody>
-        </table>
-        <p id="history-empty" class="empty-hint hidden">Nenhuma consulta ainda — busque um IND LOC acima.</p>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <p>Dados de aeródromo via AISWEB/DECEA · Declinação magnética via NOAA WMM</p>
-  </footer>
+  </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>

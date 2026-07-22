@@ -16,7 +16,10 @@ const OPENAIP_API_KEY = "c78fad77a276a17e092101fc1c2753b4";
 
 const ORIGEM = { icao: "SBNV", lat: -16.625556, lon: -49.349444 };
 
-const map = L.map("map").setView([ORIGEM.lat, ORIGEM.lon], 5);
+// zoomControl fica em bottomright pra não colidir com o painel de ferramentas
+// (docked em top:0/left:0 sobre o mapa em tela cheia).
+const map = L.map("map", { zoomControl: false }).setView([ORIGEM.lat, ORIGEM.lon], 5);
+L.control.zoom({ position: "bottomright" }).addTo(map);
 
 const baseLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
   maxZoom: 17,
@@ -263,16 +266,41 @@ rotaForm.addEventListener("submit", async (ev) => {
 
 loadHistory();
 
-// ====== Painel de camadas DECEA (GeoAISWEB) ======
-async function initLayersPanel() {
-  const toggleBtn = document.getElementById("layers-toggle");
-  const panel = document.getElementById("layers-panel");
-  const closeBtn = document.getElementById("layers-close");
-  const tabs = document.querySelectorAll(".layers-tab");
+// ====== Painel de ferramentas (Buscar / Rota FPL / Camadas / Selecionadas / Histórico) ======
+function initToolPanel() {
+  const panel = document.getElementById("tool-panel");
+  const closeBtn = document.getElementById("tool-panel-close");
+  const toolbarBtns = document.querySelectorAll(".toolbar-tools .tool-btn");
+  const panelTabs = document.querySelectorAll(".tool-panel-tabs .tool-tab");
   const tabPanels = {
-    camadas: document.getElementById("layers-tab-camadas"),
-    selecionadas: document.getElementById("layers-tab-selecionadas"),
+    buscar: document.getElementById("tab-buscar"),
+    rota: document.getElementById("tab-rota"),
+    camadas: document.getElementById("tab-camadas"),
+    selecionadas: document.getElementById("tab-selecionadas"),
+    historico: document.getElementById("tab-historico"),
   };
+
+  function openTab(name) {
+    panel.classList.remove("hidden");
+    Object.entries(tabPanels).forEach(([key, el]) => el.classList.toggle("hidden", key !== name));
+    panelTabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+    toolbarBtns.forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+  }
+
+  toolbarBtns.forEach((btn) => btn.addEventListener("click", () => openTab(btn.dataset.tab)));
+  panelTabs.forEach((btn) => btn.addEventListener("click", () => openTab(btn.dataset.tab)));
+  closeBtn.addEventListener("click", () => {
+    panel.classList.add("hidden");
+    toolbarBtns.forEach((t) => t.classList.remove("active"));
+  });
+
+  openTab("buscar");
+}
+
+initToolPanel();
+
+// ====== Catálogo de camadas DECEA (GeoAISWEB) ======
+async function initLayersTree() {
   const searchInput = document.getElementById("layers-search");
   const treeEl = document.getElementById("layers-tree");
   const selectedList = document.getElementById("layers-selected-list");
@@ -280,19 +308,6 @@ async function initLayersPanel() {
 
   const activeLayers = new Map(); // nome da camada -> { leaflet, label }
   const checkboxByLayer = new Map(); // nome da camada -> <input> (só existe se já renderizado)
-
-  toggleBtn.addEventListener("click", () => panel.classList.toggle("hidden"));
-  closeBtn.addEventListener("click", () => panel.classList.add("hidden"));
-
-  tabs.forEach((tab) => {
-    tab.addEventListener("click", () => {
-      tabs.forEach((t) => t.classList.remove("active"));
-      tab.classList.add("active");
-      Object.entries(tabPanels).forEach(([key, el]) => {
-        el.classList.toggle("hidden", key !== tab.dataset.tab);
-      });
-    });
-  });
 
   function updateSelectedList() {
     selectedList.innerHTML = "";
@@ -450,4 +465,4 @@ async function initLayersPanel() {
   });
 }
 
-initLayersPanel();
+initLayersTree();
