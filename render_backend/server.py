@@ -419,5 +419,29 @@ def historico():
     return jsonify({"resultados": [d.to_dict() for d in docs]})
 
 
+# ====== Keep-alive: evita o cold start do plano gratuito do Render ======
+# O Render "dorme" o serviço após ~15 min sem requisições HTTP. Como um
+# agendamento externo (ex.: GitHub Actions) não é confiável o suficiente,
+# o próprio processo se autopinga periodicamente pela URL pública (só conta
+# como "acordado" se a requisição realmente sair e voltar pelo Render, por
+# isso não adianta chamar a view Flask direto em memória). Só roda quando
+# RENDER_EXTERNAL_URL existir (ou seja, em produção no Render), nunca local.
+SELF_PING_INTERVAL_S = 10 * 60
+
+
+def _self_ping_loop(url: str):
+    while True:
+        time.sleep(SELF_PING_INTERVAL_S)
+        try:
+            requests.get(url, timeout=15)
+        except requests.RequestException:
+            pass
+
+
+_external_url = os.environ.get("RENDER_EXTERNAL_URL")
+if _external_url:
+    threading.Thread(target=_self_ping_loop, args=(_external_url,), daemon=True).start()
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False, threaded=True)
