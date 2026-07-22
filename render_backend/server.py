@@ -162,6 +162,14 @@ def _fetch_aerodromo_aisweb(icao: str):
 
 
 def fetch_aerodromo(icao: str):
+    # Base local primeiro: responde na hora, sem depender de rede nem do
+    # AISWEB estar no ar — cobre os 5946 aeródromos do ROTAER completo.
+    backup = ROTAER_BACKUP.get(icao)
+    if backup:
+        return {**backup, "icao": icao, "fonte": "rotaer_backup"}
+
+    # Indicativo fora da base local (ex.: aeródromo novo, cadastrado depois
+    # do PDF do ROTAER): tenta o AISWEB como último recurso.
     now = time.time()
     with _cache_lock:
         cached = _aerodromo_cache.get(icao)
@@ -172,11 +180,6 @@ def fetch_aerodromo(icao: str):
         aerodromo = _fetch_aerodromo_aisweb(icao)
     except requests.RequestException:
         aerodromo = None
-
-    if aerodromo is None:
-        backup = ROTAER_BACKUP.get(icao)
-        if backup:
-            aerodromo = {**backup, "icao": icao, "fonte": "rotaer_backup"}
 
     if aerodromo is not None:
         with _cache_lock:
