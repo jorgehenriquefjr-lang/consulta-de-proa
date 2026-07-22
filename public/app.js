@@ -35,7 +35,11 @@ const openAipLayer = L.tileLayer(
   }
 );
 
-// Cartas oficiais do DECEA (GeoAISWEB), cobrindo a região de SBNV (Goiânia/GO)
+L.control
+  .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, { collapsed: true })
+  .addTo(map);
+
+// Cartas oficiais do DECEA (GeoAISWEB): catálogo completo no painel de camadas
 const GEOAISWEB_WMS = "https://geoaisweb.decea.gov.br/geoserver/ICA/wms";
 function decealChartLayer(layerName) {
   return L.tileLayer.wms(GEOAISWEB_WMS, {
@@ -46,29 +50,6 @@ function decealChartLayer(layerName) {
     attribution: "Cartas aeronáuticas &copy; DECEA",
   });
 }
-
-const arcAnapolisLayer = decealChartLayer("ICA:ARC_ANAPOLIS");
-const enrcL5Layer = decealChartLayer("ICA:ENRC_L5");
-const enrcH5Layer = decealChartLayer("ICA:ENRC_H5");
-const ctrLayer = decealChartLayer("ICA:CTR");
-const ctaLayer = decealChartLayer("ICA:CTA");
-const atzLayer = decealChartLayer("ICA:ATZ");
-
-L.control
-  .layers(
-    null,
-    {
-      "Espaço aéreo (OpenAIP)": openAipLayer,
-      "Carta Visual (ARC Anápolis)": arcAnapolisLayer,
-      "Carta IFR rota baixa (ENRC L5)": enrcL5Layer,
-      "Carta IFR rota alta (ENRC H5)": enrcH5Layer,
-      "CTR": ctrLayer,
-      "CTA": ctaLayer,
-      "ATZ": atzLayer,
-    },
-    { collapsed: true }
-  )
-  .addTo(map);
 
 let originMarker = L.marker([ORIGEM.lat, ORIGEM.lon])
   .addTo(map)
@@ -281,3 +262,192 @@ rotaForm.addEventListener("submit", async (ev) => {
 });
 
 loadHistory();
+
+// ====== Painel de camadas DECEA (GeoAISWEB) ======
+async function initLayersPanel() {
+  const toggleBtn = document.getElementById("layers-toggle");
+  const panel = document.getElementById("layers-panel");
+  const closeBtn = document.getElementById("layers-close");
+  const tabs = document.querySelectorAll(".layers-tab");
+  const tabPanels = {
+    camadas: document.getElementById("layers-tab-camadas"),
+    selecionadas: document.getElementById("layers-tab-selecionadas"),
+  };
+  const searchInput = document.getElementById("layers-search");
+  const treeEl = document.getElementById("layers-tree");
+  const selectedList = document.getElementById("layers-selected-list");
+  const selectedEmpty = document.getElementById("layers-selected-empty");
+
+  const activeLayers = new Map(); // nome da camada -> { leaflet, label }
+  const checkboxByLayer = new Map(); // nome da camada -> <input> (só existe se já renderizado)
+
+  toggleBtn.addEventListener("click", () => panel.classList.toggle("hidden"));
+  closeBtn.addEventListener("click", () => panel.classList.add("hidden"));
+
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      tabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      Object.entries(tabPanels).forEach(([key, el]) => {
+        el.classList.toggle("hidden", key !== tab.dataset.tab);
+      });
+    });
+  });
+
+  function updateSelectedList() {
+    selectedList.innerHTML = "";
+    selectedEmpty.classList.toggle("hidden", activeLayers.size > 0);
+    activeLayers.forEach((entry, name) => {
+      const li = document.createElement("li");
+      const span = document.createElement("span");
+      span.textContent = entry.label;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Remover";
+      btn.addEventListener("click", () => setLayerActive(name, entry.label, false));
+      li.appendChild(span);
+      li.appendChild(btn);
+      selectedList.appendChild(li);
+    });
+  }
+
+  function setLayerActive(name, label, active) {
+    const checkbox = checkboxByLayer.get(name);
+    if (checkbox) checkbox.checked = active;
+
+    if (active) {
+      if (!activeLayers.has(name)) {
+        const leaflet = decealChartLayer(name).addTo(map);
+        activeLayers.set(name, { leaflet, label });
+      }
+    } else {
+      const entry = activeLayers.get(name);
+      if (entry) {
+        map.removeLayer(entry.leaflet);
+        activeLayers.delete(name);
+      }
+    }
+    updateSelectedList();
+  }
+
+  function makeLayerItem(layer) {
+    const div = document.createElement("div");
+    div.className = "layers-item";
+    const id = `layer-${layer.name}`;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = id;
+    checkbox.checked = activeLayers.has(layer.name);
+    checkbox.addEventListener("change", () => setLayerActive(layer.name, layer.label, checkbox.checked));
+
+    const label = document.createElement("label");
+    label.htmlFor = id;
+    label.textContent = layer.label;
+
+    div.appendChild(checkbox);
+    div.appendChild(label);
+    checkboxByLayer.set(layer.name, checkbox);
+    return div;
+  }
+
+  function makeSubgroupNode(subgroup) {
+    const details = document.createElement("details");
+    details.className = "layers-group layers-subgroup";
+    const summary = document.createElement("summary");
+    summary.className = "layers-subgroup-header";
+    summary.textContent = subgroup.label;
+    details.appendChild(summary);
+
+    const children = document.createElement("div");
+    children.className = "layers-group-children";
+    let built = false;
+    details.addEventListener("toggle", () => {
+      if (details.open && !built) {
+        built = true;
+        subgroup.layers.forEach((layer) => children.appendChild(makeLayerItem(layer)));
+      }
+    });
+    details.appendChild(children);
+    return details;
+  }
+
+  function makeGroupNode(group) {
+    const details = document.createElement("details");
+    details.className = "layers-group";
+    const summary = document.createElement("summary");
+    summary.className = "layers-group-header";
+    summary.textContent = group.label;
+    details.appendChild(summary);
+
+    const children = document.createElement("div");
+    children.className = "layers-group-children";
+    let built = false;
+    details.addEventListener("toggle", () => {
+      if (details.open && !built) {
+        built = true;
+        (group.layers || []).forEach((layer) => children.appendChild(makeLayerItem(layer)));
+        (group.subgroups || []).forEach((sg) => children.appendChild(makeSubgroupNode(sg)));
+      }
+    });
+    details.appendChild(children);
+    return details;
+  }
+
+  let catalog = null;
+  try {
+    const resp = await fetch("decea_layers.json");
+    catalog = await resp.json();
+  } catch (e) {
+    treeEl.textContent = "Falha ao carregar o catálogo de camadas.";
+    return;
+  }
+
+  catalog.groups.forEach((group) => treeEl.appendChild(makeGroupNode(group)));
+
+  // Busca: expande e filtra grupos/itens que batem com o texto digitado.
+  // Como a árvore é montada sob demanda, força a montagem completa ao buscar.
+  function forceBuildAll() {
+    // Cada grupo só cria seus filhos (inclusive subgrupos aninhados) quando
+    // aberto pela 1ª vez, então repete até não sobrar nenhum <details> fechado.
+    let closed;
+    do {
+      closed = treeEl.querySelectorAll("details:not([open])");
+      closed.forEach((d) => {
+        d.open = true;
+        d.dispatchEvent(new Event("toggle"));
+      });
+    } while (closed.length > 0);
+  }
+
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLocaleLowerCase("pt-BR");
+    if (!q) {
+      treeEl.querySelectorAll(".layers-item, .layers-group, .layers-subgroup").forEach((el) => {
+        el.classList.remove("hidden");
+      });
+      return;
+    }
+
+    forceBuildAll();
+
+    treeEl.querySelectorAll(".layers-item").forEach((item) => {
+      const label = item.querySelector("label").textContent.toLocaleLowerCase("pt-BR");
+      item.classList.toggle("hidden", !label.includes(q));
+    });
+
+    treeEl.querySelectorAll(".layers-subgroup").forEach((sg) => {
+      const hasMatch = !!sg.querySelector(".layers-item:not(.hidden)");
+      sg.classList.toggle("hidden", !hasMatch);
+      sg.open = hasMatch;
+    });
+
+    treeEl.querySelectorAll(":scope > .layers-group").forEach((g) => {
+      const hasMatch = !!g.querySelector(".layers-item:not(.hidden)");
+      g.classList.toggle("hidden", !hasMatch);
+      g.open = hasMatch;
+    });
+  });
+}
+
+initLayersPanel();

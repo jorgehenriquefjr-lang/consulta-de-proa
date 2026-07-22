@@ -84,7 +84,29 @@
         <h3>Traçado da rota</h3>
         <span class="map-legend"><i class="dot origin"></i> SBNV <i class="dot dest"></i> Destino <i class="dot fix"></i> Fixo</span>
       </div>
-      <div id="map"></div>
+      <div class="map-wrap">
+        <button id="layers-toggle" class="layers-toggle-btn" type="button" title="Camadas aeronáuticas">☰ Camadas</button>
+        <aside id="layers-panel" class="layers-panel hidden">
+          <div class="layers-panel-header">
+            <div class="layers-tabs">
+              <button type="button" class="layers-tab active" data-tab="camadas">Camadas</button>
+              <button type="button" class="layers-tab" data-tab="selecionadas">Selecionadas</button>
+            </div>
+            <button id="layers-close" class="layers-close-btn" type="button" aria-label="Fechar">✕</button>
+          </div>
+          <div class="layers-panel-body">
+            <div id="layers-tab-camadas" class="layers-tab-panel">
+              <input id="layers-search" class="layers-search" placeholder="Buscar camada...">
+              <div id="layers-tree" class="layers-tree"></div>
+            </div>
+            <div id="layers-tab-selecionadas" class="layers-tab-panel hidden">
+              <ul id="layers-selected-list" class="layers-selected-list"></ul>
+              <p id="layers-selected-empty" class="empty-hint">Nenhuma camada ativa.</p>
+            </div>
+          </div>
+        </aside>
+        <div id="map"></div>
+      </div>
     </section>
 
     <section class="card">
