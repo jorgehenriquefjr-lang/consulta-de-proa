@@ -43,6 +43,21 @@ ORIGEM = {
 
 DECLINACAO_FALLBACK = -21.6  # aproximada em SBNV (WMM 2025), usada só se a NOAA falhar
 
+# Backup local com todos os aeródromos do ROTAER/AISWEB, usado só quando a
+# consulta ao AISWEB falha ou está indisponível. Gerado a partir do PDF do
+# ROTAER completo; pode ter nomes com acentuação perdida (limitação da fonte
+# do PDF de origem), mas o indicativo e as coordenadas são confiáveis.
+def _load_rotaer_backup():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rotaer_data.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+ROTAER_BACKUP = _load_rotaer_backup()
+
 # Pontos de referência VFR salvos (coordenada do Campo 18 -> nome amigável),
 # para exibir o nome certo em vez do genérico "Localidade sem indicador".
 KNOWN_POINTS = {
@@ -118,13 +133,7 @@ def parse_fpl_coord(coord: str):
     return lat, lon
 
 
-def fetch_aerodromo(icao: str):
-    now = time.time()
-    with _cache_lock:
-        cached = _aerodromo_cache.get(icao)
-        if cached and cached[0] > now:
-            return cached[1]
-
+def _fetch_aerodromo_aisweb(icao: str):
     url = f"https://aisweb.decea.mil.br/?i=aerodromos&codigo={icao}"
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
     resp.raise_for_status()
@@ -141,17 +150,37 @@ def fetch_aerodromo(icao: str):
     lat = dms_to_dd(*coord_m.group(1, 2, 3), coord_m.group(4))
     lon = dms_to_dd(*coord_m.group(5, 6, 7), coord_m.group(8))
 
-    aerodromo = {
+    return {
         "icao": icao,
         "name": name_m.group(1).strip(),
         "city": city_m.group(1).strip() if city_m else "",
         "state": state_m.group(1).strip() if state_m else "",
         "lat": lat,
         "lon": lon,
+        "fonte": "aisweb",
     }
 
+
+def fetch_aerodromo(icao: str):
+    now = time.time()
     with _cache_lock:
-        _aerodromo_cache[icao] = (now + AERODROMO_CACHE_TTL, aerodromo)
+        cached = _aerodromo_cache.get(icao)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    try:
+        aerodromo = _fetch_aerodromo_aisweb(icao)
+    except requests.RequestException:
+        aerodromo = None
+
+    if aerodromo is None:
+        backup = ROTAER_BACKUP.get(icao)
+        if backup:
+            aerodromo = {**backup, "icao": icao, "fonte": "rotaer_backup"}
+
+    if aerodromo is not None:
+        with _cache_lock:
+            _aerodromo_cache[icao] = (now + AERODROMO_CACHE_TTL, aerodromo)
     return aerodromo
 
 
@@ -314,7 +343,7 @@ def buscar_proa():
             return jsonify({"error": "Falha ao consultar o AISWEB. Tente novamente."}), 502
 
         if not destino:
-            return jsonify({"error": f"Aeródromo {icao} não encontrado no AISWEB."}), 404
+            return jsonify({"error": f"Aeródromo {icao} não encontrado no AISWEB nem no backup local."}), 404
 
     distancia_nm, proa_verdadeira = great_circle(
         ORIGEM["lat"], ORIGEM["lon"], destino["lat"], destino["lon"]
