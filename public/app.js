@@ -7,6 +7,10 @@ const resultCard = document.getElementById("result-card");
 const historyBody = document.getElementById("history-body");
 const historyEmpty = document.getElementById("history-empty");
 
+const metarTafBox = document.getElementById("metar-taf-box");
+const metarTextEl = document.getElementById("metar-text");
+const tafTextEl = document.getElementById("taf-text");
+
 const rotaForm = document.getElementById("rota-form");
 const rotaInput = document.getElementById("rota-input");
 const rotaStatusEl = document.getElementById("rota-status");
@@ -189,6 +193,34 @@ function showResult(data) {
     `${data.declinacao_magnetica.toFixed(1)}°`;
 
   drawRoute(data.origem, data.destino, data.proa_magnetica, data.distancia_nm);
+  loadMetarTaf(data.destino.icao);
+}
+
+async function loadMetarTaf(icao) {
+  // ZZZZ (coordenada do Campo 18, sem indicador) não tem METAR/TAF pra buscar.
+  if (!icao || icao === "ZZZZ") {
+    metarTafBox.classList.add("hidden");
+    return;
+  }
+
+  metarTafBox.classList.remove("hidden");
+  metarTextEl.textContent = "Consultando...";
+  tafTextEl.textContent = "Consultando...";
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/metar_taf?icao=${icao}`);
+    const data = await resp.json();
+    if (!resp.ok) {
+      metarTextEl.textContent = "Falha ao consultar.";
+      tafTextEl.textContent = "Falha ao consultar.";
+      return;
+    }
+    metarTextEl.textContent = data.metar || "Não disponível para este aeródromo.";
+    tafTextEl.textContent = data.taf || "Não disponível para este aeródromo.";
+  } catch (e) {
+    metarTextEl.textContent = "Falha de conexão com o servidor.";
+    tafTextEl.textContent = "Falha de conexão com o servidor.";
+  }
 }
 
 async function loadHistory() {

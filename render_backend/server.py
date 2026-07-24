@@ -86,15 +86,23 @@ NAME_RE = re.compile(r'title="Nome do Aeródromo">([^<]+)</span>')
 CITY_RE = re.compile(r'title="cidade">([^<]+)</span>')
 STATE_RE = re.compile(r'title="Estado">([^<]+)</span>')
 
+# METAR e TAF vêm prontos (texto puro, direto da REDEMET) na própria página do
+# AISWEB. SPECI não tem seção própria: quando o mais recente é um SPECI em vez
+# de METAR de rotina, a mensagem já vem com "SPECI ..." no lugar de "METAR ...".
+METAR_HTML_RE = re.compile(r'heading-primary">METAR</h5>\s*<p>([^<]*)</p>', re.IGNORECASE)
+TAF_HTML_RE = re.compile(r'heading-primary">TAF</h5>\s*<p>([^<]*)</p>', re.IGNORECASE)
+
 EARTH_RADIUS_NM = 3440.065
 
 # ====== Cache em memória: evita repetir consultas lentas ao AISWEB/NOAA ======
 _cache_lock = threading.Lock()
 _aerodromo_cache = {}  # icao -> (expira_em, dado)
 _declinacao_cache = {}  # (lat_arredondado, lon_arredondado) -> (expira_em, valor)
+_metar_taf_cache = {}  # icao -> (expira_em, dado)
 AERODROMO_CACHE_TTL = 24 * 3600
 DECLINACAO_CACHE_TTL = 7 * 24 * 3600
 DECLINACAO_FALLBACK_TTL = 300  # tenta a NOAA de novo em breve se ela estava fora do ar
+METAR_TAF_CACHE_TTL = 10 * 60  # METAR/TAF mudam com frequência; cache curto só evita rajada de cliques
 
 
 def dms_to_dd(deg: str, minutes: str, seconds: str, hemisphere: str) -> float:
@@ -187,6 +195,30 @@ def fetch_aerodromo(icao: str):
         with _cache_lock:
             _aerodromo_cache[icao] = (now + AERODROMO_CACHE_TTL, aerodromo)
     return aerodromo
+
+
+def fetch_metar_taf(icao: str):
+    now = time.time()
+    with _cache_lock:
+        cached = _metar_taf_cache.get(icao)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    url = f"https://aisweb.decea.mil.br/?i=aerodromos&codigo={icao}"
+    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+    resp.raise_for_status()
+    html = resp.text
+
+    metar_m = METAR_HTML_RE.search(html)
+    taf_m = TAF_HTML_RE.search(html)
+    resultado = {
+        "metar": metar_m.group(1).strip() or None if metar_m else None,
+        "taf": taf_m.group(1).strip() or None if taf_m else None,
+    }
+
+    with _cache_lock:
+        _metar_taf_cache[icao] = (now + METAR_TAF_CACHE_TTL, resultado)
+    return resultado
 
 
 def lookup_fixes(idents: list[str]) -> dict:
@@ -421,6 +453,20 @@ def rota_fpl():
         }), 400
 
     return jsonify({"pontos": pontos, "nao_resolvidos": nao_resolvidos})
+
+
+@app.route("/api/metar_taf")
+def metar_taf():
+    icao = (request.args.get("icao") or "").strip().upper()
+    if not ICAO_RE.match(icao):
+        return jsonify({"error": "IND LOC inválido. Use de 3 a 6 letras/números (ex.: SBGR)."}), 400
+
+    try:
+        dados = fetch_metar_taf(icao)
+    except requests.RequestException:
+        return jsonify({"error": "Falha ao consultar o AISWEB. Tente novamente."}), 502
+
+    return jsonify({"icao": icao, "metar": dados["metar"], "taf": dados["taf"]})
 
 
 @app.route("/api/historico")
