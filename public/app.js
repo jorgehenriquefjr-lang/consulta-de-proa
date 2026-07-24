@@ -11,6 +11,15 @@ const metarTafBox = document.getElementById("metar-taf-box");
 const metarTextEl = document.getElementById("metar-text");
 const tafTextEl = document.getElementById("taf-text");
 
+const avisosBox = document.getElementById("avisos-box");
+const avisoAerodromoTextEl = document.getElementById("aviso-aerodromo-text");
+const sigmetTextEl = document.getElementById("sigmet-text");
+const gametTextEl = document.getElementById("gamet-text");
+
+const radarImgEl = document.getElementById("radar-img");
+const radarStatusTextEl = document.getElementById("radar-status-text");
+const radarEstacaoEl = document.getElementById("radar-estacao");
+
 const rotaForm = document.getElementById("rota-form");
 const rotaInput = document.getElementById("rota-input");
 const rotaStatusEl = document.getElementById("rota-status");
@@ -292,6 +301,7 @@ function showResult(data) {
 
   drawRoute(data.origem, data.destino, data.proa_magnetica, data.distancia_nm);
   loadMetarTaf(data.destino.icao);
+  loadAvisos(data.destino.icao);
 }
 
 async function loadMetarTaf(icao) {
@@ -318,6 +328,72 @@ async function loadMetarTaf(icao) {
   } catch (e) {
     metarTextEl.textContent = "Falha de conexão com o servidor.";
     tafTextEl.textContent = "Falha de conexão com o servidor.";
+  }
+}
+
+function setAvisoText(el, mensagens, vazioTexto) {
+  if (mensagens && mensagens.length > 0) {
+    el.textContent = mensagens.map((m) => m.mens).join("\n\n");
+    el.classList.add("mono-text-warn");
+  } else {
+    el.textContent = vazioTexto;
+    el.classList.remove("mono-text-warn");
+  }
+}
+
+async function loadAvisos(icao) {
+  // ZZZZ (coordenada do Campo 18, sem indicador) não tem aviso de aeródromo pra buscar.
+  if (!icao || icao === "ZZZZ") {
+    avisosBox.classList.add("hidden");
+    return;
+  }
+
+  avisosBox.classList.remove("hidden");
+  avisoAerodromoTextEl.textContent = "Consultando...";
+  sigmetTextEl.textContent = "Consultando...";
+  gametTextEl.textContent = "Consultando...";
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/avisos?icao=${icao}`);
+    const data = await resp.json();
+    if (!resp.ok) {
+      const erro = data.error || "Falha ao consultar.";
+      avisoAerodromoTextEl.textContent = erro;
+      sigmetTextEl.textContent = erro;
+      gametTextEl.textContent = erro;
+      return;
+    }
+    setAvisoText(avisoAerodromoTextEl, data.aviso_aerodromo, "Nenhum aviso de aeródromo vigente.");
+    setAvisoText(sigmetTextEl, data.sigmet, "Nenhum SIGMET vigente.");
+    setAvisoText(gametTextEl, data.gamet, "Nenhum GAMET vigente.");
+  } catch (e) {
+    avisoAerodromoTextEl.textContent = "Falha de conexão com o servidor.";
+    sigmetTextEl.textContent = "Falha de conexão com o servidor.";
+    gametTextEl.textContent = "Falha de conexão com o servidor.";
+  }
+}
+
+async function loadRadar() {
+  radarStatusTextEl.textContent = "Consultando...";
+  radarImgEl.classList.add("hidden");
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/radar`);
+    const data = await resp.json();
+    if (!resp.ok) {
+      radarStatusTextEl.textContent = data.error || "Falha ao consultar.";
+      return;
+    }
+    radarEstacaoEl.textContent = `(${data.nome})`;
+    if (data.path) {
+      radarImgEl.src = data.path;
+      radarImgEl.classList.remove("hidden");
+      radarStatusTextEl.textContent = `Atualizado em ${data.data} UTC`;
+    } else {
+      radarStatusTextEl.textContent = "Sem imagem disponível no momento.";
+    }
+  } catch (e) {
+    radarStatusTextEl.textContent = "Falha de conexão com o servidor.";
   }
 }
 
@@ -489,6 +565,7 @@ rotaForm.addEventListener("submit", async (ev) => {
 });
 
 loadHistory();
+loadRadar();
 
 // ====== Painel de ferramentas (Buscar / Rota FPL / Camadas / Selecionadas / Histórico) ======
 function initToolPanel() {

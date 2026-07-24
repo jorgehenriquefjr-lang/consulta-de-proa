@@ -8,9 +8,12 @@ from datetime import datetime, timezone
 
 import firebase_admin
 import requests
+from dotenv import load_dotenv
 from firebase_admin import credentials, firestore
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
@@ -42,6 +45,23 @@ ORIGEM = {
 }
 
 DECLINACAO_FALLBACK = -21.6  # aproximada em SBNV (WMM 2025), usada só se a NOAA falhar
+
+# ====== API-REDEMET (avisos): SIGMET, GAMET, aviso de aeródromo e radar ======
+REDEMET_API_KEY = os.environ.get("REDEMET_API_KEY", "")
+REDEMET_BASE_URL = "https://api-redemet.decea.mil.br"
+
+# Estações de radar meteorológico da REDEMET (raio de 400km cada). "ga" (Gama/DF)
+# é a mais próxima da região de SBNV/Goiânia, por isso é o padrão do endpoint.
+RADAR_STATIONS = {
+    "al": "Almenara/MG", "be": "Belém/PA", "bv": "Boa Vista/RR", "cn": "Canguçu/RS",
+    "cz": "Cruzeiro do Sul/AC", "ga": "Gama/DF", "jr": "Jaraguari/MS", "mq": "Macapá/AP",
+    "mo": "Maceió/AL", "mn": "Manaus/AM", "mi": "Morro da Igreja/SC", "nt": "Natal/RN",
+    "pl": "Petrolina/PE", "pc": "Pico do Couto/RJ", "pv": "Porto Velho/RO", "sv": "Salvador/BA",
+    "sn": "Santarém/PA", "st": "Santa Teresa/MG", "sg": "Santiago/RS", "sf": "São Francisco/MG",
+    "ua": "São Gabriel da Cachoeira/AM", "sl": "São Luís/MA", "sr": "São Roque/SP",
+    "tt": "Tabatinga/AM", "tf": "Tefé/AM", "tm": "Três Marias/MG",
+}
+RADAR_TIPOS = {"maxcappi", "10km", "07km", "05km", "03km"}
 
 # Backup local com todos os aeródromos do ROTAER/AISWEB, usado só quando a
 # consulta ao AISWEB falha ou está indisponível. Gerado a partir do PDF do
@@ -99,10 +119,14 @@ _cache_lock = threading.Lock()
 _aerodromo_cache = {}  # icao -> (expira_em, dado)
 _declinacao_cache = {}  # (lat_arredondado, lon_arredondado) -> (expira_em, valor)
 _metar_taf_cache = {}  # icao -> (expira_em, dado)
+_avisos_cache = {}  # (icao, pais) -> (expira_em, dado)
 AERODROMO_CACHE_TTL = 24 * 3600
 DECLINACAO_CACHE_TTL = 7 * 24 * 3600
 DECLINACAO_FALLBACK_TTL = 300  # tenta a NOAA de novo em breve se ela estava fora do ar
 METAR_TAF_CACHE_TTL = 10 * 60  # METAR/TAF mudam com frequência; cache curto só evita rajada de cliques
+AVISOS_CACHE_TTL = 10 * 60  # SIGMET/GAMET/aviso de aeródromo mudam com frequência
+_radar_cache = {}  # (area, tipo) -> (expira_em, dado)
+RADAR_CACHE_TTL = 10 * 60  # imagens de radar são geradas a cada ~10min
 
 
 def dms_to_dd(deg: str, minutes: str, seconds: str, hemisphere: str) -> float:
@@ -337,6 +361,80 @@ def magnetic_declination(lat: float, lon: float) -> float:
     return value
 
 
+def _redemet_get(path: str, params: dict):
+    if not REDEMET_API_KEY:
+        raise RuntimeError("REDEMET_API_KEY não configurada no servidor.")
+    query = {"api_key": REDEMET_API_KEY, **params}
+    resp = requests.get(f"{REDEMET_BASE_URL}{path}", params=query, timeout=10)
+    resp.raise_for_status()
+    payload = resp.json()
+    if not payload.get("status"):
+        raise ValueError(str(payload.get("message") or "Falha na API da REDEMET."))
+    return payload.get("data") or {}
+
+
+def _mensagens_ativas(mensagens: list) -> list:
+    """Filtra mensagens (SIGMET/GAMET/aviso de aeródromo) cuja validade cobre o instante atual."""
+    agora = datetime.now(timezone.utc)
+    ativas = []
+    for m in mensagens:
+        try:
+            inicio = datetime.strptime(m["validade_inicial"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            fim = datetime.strptime(m["validade_final"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except (KeyError, ValueError, TypeError):
+            continue
+        if inicio <= agora <= fim:
+            ativas.append(m)
+    return ativas
+
+
+def fetch_avisos(icao: str, pais: str = "Brasil"):
+    """Busca, na REDEMET, SIGMET/GAMET vigentes do país e aviso de aeródromo vigente do ICAO."""
+    cache_key = (icao, pais)
+    now = time.time()
+    with _cache_lock:
+        cached = _avisos_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    aviso_aerodromo = _mensagens_ativas(_redemet_get(f"/mensagens/aviso/{icao}", {}).get("data", []))
+    sigmet = _mensagens_ativas(_redemet_get("/mensagens/sigmet", {"pais": pais}).get("data", []))
+    gamet = _mensagens_ativas(_redemet_get("/mensagens/gamet", {"pais": pais}).get("data", []))
+
+    resultado = {"aviso_aerodromo": aviso_aerodromo, "sigmet": sigmet, "gamet": gamet}
+    with _cache_lock:
+        _avisos_cache[cache_key] = (now + AVISOS_CACHE_TTL, resultado)
+    return resultado
+
+
+def fetch_radar(area: str = "ga", tipo: str = "maxcappi"):
+    """Busca, na REDEMET, a imagem de radar meteorológico mais recente de uma estação."""
+    cache_key = (area, tipo)
+    now = time.time()
+    with _cache_lock:
+        cached = _radar_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    dados = _redemet_get(f"/produtos/radar/{tipo}", {"area": area})
+    estacoes = dados.get("radar") or []
+    # A API retorna uma lista aninhada (lista de listas); achata antes de procurar a estação.
+    lista = [item for grupo in estacoes for item in (grupo if isinstance(grupo, list) else [grupo])]
+    estacao = next((e for e in lista if e.get("localidade") == area), lista[0] if lista else None)
+
+    resultado = {
+        "area": area,
+        "nome": RADAR_STATIONS.get(area, area),
+        "tipo": tipo,
+        "path": (estacao or {}).get("path"),
+        "data": (estacao or {}).get("data"),
+        "raio": (estacao or {}).get("raio"),
+    }
+    with _cache_lock:
+        _radar_cache[cache_key] = (now + RADAR_CACHE_TTL, resultado)
+    return resultado
+
+
 @app.route("/")
 def health():
     return jsonify({"status": "ok", "service": "consulta-de-proas-backend"})
@@ -467,6 +565,42 @@ def metar_taf():
         return jsonify({"error": "Falha ao consultar o AISWEB. Tente novamente."}), 502
 
     return jsonify({"icao": icao, "metar": dados["metar"], "taf": dados["taf"]})
+
+
+@app.route("/api/avisos")
+def avisos():
+    icao = (request.args.get("icao") or "").strip().upper()
+    pais = (request.args.get("pais") or "Brasil").strip()
+    if not ICAO_RE.match(icao):
+        return jsonify({"error": "IND LOC inválido. Use de 3 a 6 letras/números (ex.: SBGR)."}), 400
+
+    try:
+        resultado = fetch_avisos(icao, pais)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except (requests.RequestException, ValueError) as e:
+        return jsonify({"error": f"Falha ao consultar a REDEMET: {e}"}), 502
+
+    return jsonify({"icao": icao, "pais": pais, **resultado})
+
+
+@app.route("/api/radar")
+def radar():
+    area = (request.args.get("area") or "ga").strip().lower()
+    tipo = (request.args.get("tipo") or "maxcappi").strip().lower()
+    if area not in RADAR_STATIONS:
+        return jsonify({"error": f"Estação de radar inválida. Opções: {', '.join(sorted(RADAR_STATIONS))}."}), 400
+    if tipo not in RADAR_TIPOS:
+        return jsonify({"error": f"Tipo de radar inválido. Opções: {', '.join(sorted(RADAR_TIPOS))}."}), 400
+
+    try:
+        resultado = fetch_radar(area, tipo)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except (requests.RequestException, ValueError) as e:
+        return jsonify({"error": f"Falha ao consultar a REDEMET: {e}"}), 502
+
+    return jsonify(resultado)
 
 
 @app.route("/api/historico")

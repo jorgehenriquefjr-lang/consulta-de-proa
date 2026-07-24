@@ -374,6 +374,18 @@ button:active { transform: translateY(0); }
   word-break: break-word;
 }
 
+/* Avisos (SIGMET/GAMET/aviso de aeródromo) */
+.mono-text-warn { border-color: rgba(220, 38, 38, 0.35); color: var(--danger); }
+
+/* Radar meteorológico */
+.radar-img {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+
 /* layers tree */
 .layers-search {
   width: 100%;
