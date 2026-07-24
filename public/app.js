@@ -14,6 +14,7 @@ const rotaStatusEl = document.getElementById("rota-status");
 const origemInput = document.getElementById("origem-input");
 const origemFixarCheckbox = document.getElementById("origem-fixar");
 const origemBrandEl = document.getElementById("origem-brand");
+const savedPointsEl = document.getElementById("saved-points");
 
 // Gere sua chave grátis em openaip.net (conta > API keys) e cole aqui.
 const OPENAIP_API_KEY = "c78fad77a276a17e092101fc1c2753b4";
@@ -295,8 +296,19 @@ function initOrigem() {
     }
   }
 
+  // Os pontos VFR salvos (Abadia de Goiás, Hipódromo, Portão Trindade) são
+  // referências próximas de SBNV, então só fazem sentido com a origem em SBNV.
+  function atualizarPontosSalvos() {
+    const valor = origemInput.value.trim().toUpperCase();
+    const isSBNV = !valor || valor === "SBNV";
+    savedPointsEl.classList.toggle("hidden", !isSBNV);
+  }
+
   origemFixarCheckbox.addEventListener("change", salvarSeFixado);
   origemInput.addEventListener("change", salvarSeFixado);
+  origemInput.addEventListener("input", atualizarPontosSalvos);
+
+  atualizarPontosSalvos();
 }
 
 initOrigem();
