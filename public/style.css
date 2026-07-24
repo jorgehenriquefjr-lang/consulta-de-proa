@@ -220,6 +220,12 @@ input#origem-input {
   font-size: 13px;
   padding: 10px 12px 10px 40px;
 }
+input#origem-input::placeholder {
+  color: var(--text-dim);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
 .origin-fix {
   display: flex;
   align-items: center;

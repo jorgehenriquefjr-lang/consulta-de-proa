@@ -297,11 +297,11 @@ function initOrigem() {
   }
 
   // Os pontos VFR salvos (Abadia de Goiás, Hipódromo, Portão Trindade) são
-  // referências próximas de SBNV, então só fazem sentido com a origem em SBNV.
+  // referências próximas de SBNV, então só aparecem quando SBNV é digitado
+  // de fato na origem — campo vazio (só com o placeholder) não conta.
   function atualizarPontosSalvos() {
     const valor = origemInput.value.trim().toUpperCase();
-    const isSBNV = !valor || valor === "SBNV";
-    savedPointsEl.classList.toggle("hidden", !isSBNV);
+    savedPointsEl.classList.toggle("hidden", valor !== "SBNV");
   }
 
   origemFixarCheckbox.addEventListener("change", salvarSeFixado);
