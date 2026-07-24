@@ -283,6 +283,17 @@ function setRotaStatus(text, kind) {
 function drawFplRoute(pontosRota) {
   fplLayer.clearLayers();
 
+  // A rota do FPL já inclui origem e destino como pontos próprios; some com
+  // a linha/marcador da busca direta pra não sobrepor duas linhas no mapa.
+  if (routeLine) {
+    map.removeLayer(routeLine);
+    routeLine = null;
+  }
+  if (destMarker) {
+    map.removeLayer(destMarker);
+    destMarker = null;
+  }
+
   const pontos = [
     { ident: currentOrigem.icao, tipo: "origem", lat: currentOrigem.lat, lon: currentOrigem.lon },
     ...pontosRota,
@@ -337,6 +348,8 @@ function drawRoute(origem, destino, proaMagnetica, distanciaNm) {
 
   if (destMarker) map.removeLayer(destMarker);
   if (routeLine) map.removeLayer(routeLine);
+  // Uma nova busca direta substitui a rota do FPL, se houver uma traçada.
+  fplLayer.clearLayers();
 
   destMarker = L.marker([destino.lat, destino.lon])
     .addTo(map)
