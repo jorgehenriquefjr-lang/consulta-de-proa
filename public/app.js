@@ -301,13 +301,28 @@ function drawFplRoute(pontosRota) {
       fillOpacity: 0.85,
     }).bindPopup(`<b>${p.ident}</b><br>${p.tipo}<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`);
     fplLayer.addLayer(marker);
+
+    if (i > 0) {
+      const anterior = pontos[i - 1];
+      const { rumo, distanciaNm } = calcularRumoDistancia(anterior.lat, anterior.lon, p.lat, p.lon);
+      L.polyline(
+        [
+          [anterior.lat, anterior.lon],
+          [p.lat, p.lon],
+        ],
+        { color: "#16a34a", weight: 3, dashArray: "6 6" }
+      )
+        .bindTooltip(`${formatHeading(rumo)} · ${distanciaNm.toFixed(1)} NM`, {
+          permanent: true,
+          direction: "center",
+          className: "route-label",
+        })
+        .addTo(fplLayer);
+    }
   });
 
-  const latlngs = pontos.map((p) => [p.lat, p.lon]);
-  const line = L.polyline(latlngs, { color: "#16a34a", weight: 3, dashArray: "6 6" });
-  fplLayer.addLayer(line);
-
-  map.fitBounds(line.getBounds(), { padding: [30, 30] });
+  const bounds = L.latLngBounds(pontos.map((p) => [p.lat, p.lon]));
+  map.fitBounds(bounds, { padding: [30, 30] });
 }
 
 function updateOrigemUI(origem) {
