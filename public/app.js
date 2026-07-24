@@ -321,7 +321,7 @@ function drawFplRoute(pontosRota) {
           [anterior.lat, anterior.lon],
           [p.lat, p.lon],
         ],
-        { color: "#16a34a", weight: 3, dashArray: "6 6" }
+        { color: "#1d4ed8", weight: 3, dashArray: "6 6" }
       )
         .bindTooltip(`${formatHeading(rumo)} · ${distanciaNm.toFixed(1)} NM`, {
           permanent: true,
