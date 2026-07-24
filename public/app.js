@@ -62,12 +62,30 @@ const openAipLayer = L.tileLayer(
 // seletor de camadas (padrão: topright) vai pra um canto livre (bottomleft)
 // pra não ficar embaixo do botão de fechar do painel.
 const isCompactLayout = window.matchMedia("(max-width: 640px)").matches;
-L.control
+const layersControl = L.control
   .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, {
     collapsed: true,
     position: isCompactLayout ? "bottomleft" : "topright",
   })
   .addTo(map);
+
+// Radar meteorológico (RainViewer): mosaico global gratuito, sem chave de API.
+// Busca o frame mais recente e adiciona como mais uma camada no controle acima.
+fetch("https://api.rainviewer.com/public/weather-maps.json")
+  .then((resp) => resp.json())
+  .then((data) => {
+    const frames = data?.radar?.past;
+    if (!frames || !frames.length) return;
+    const ultimoFrame = frames[frames.length - 1];
+    const radarLayer = L.tileLayer(
+      `${data.host}${ultimoFrame.path}/256/{z}/{x}/{y}/2/1_1.png`,
+      { opacity: 0.6, attribution: "Radar &copy; RainViewer" }
+    );
+    layersControl.addOverlay(radarLayer, "Radar meteorológico (RainViewer)");
+  })
+  .catch(() => {
+    // radar é um extra; se o RainViewer estiver fora do ar, o resto do app segue normal
+  });
 
 // Cartas oficiais do DECEA (GeoAISWEB): catálogo completo no painel de camadas
 const GEOAISWEB_WMS = "https://geoaisweb.decea.gov.br/geoserver/ICA/wms";
