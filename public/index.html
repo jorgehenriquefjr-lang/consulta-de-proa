@@ -24,6 +24,7 @@
       <nav class="toolbar-tools">
         <button type="button" class="tool-btn active" data-tab="buscar">⌕ <span class="tool-btn-label">Buscar</span></button>
         <button type="button" class="tool-btn" data-tab="rota">✈ <span class="tool-btn-label">Rota FPL</span></button>
+        <button type="button" class="tool-btn" data-tab="medir">📏 <span class="tool-btn-label">Medir</span></button>
         <button type="button" class="tool-btn" data-tab="camadas">☰ <span class="tool-btn-label">Camadas</span></button>
         <button type="button" class="tool-btn" data-tab="historico">🕐 <span class="tool-btn-label">Histórico</span></button>
       </nav>
@@ -35,6 +36,7 @@
           <div class="tool-panel-tabs">
             <button type="button" class="tool-tab active" data-tab="buscar" title="Buscar">⌕</button>
             <button type="button" class="tool-tab" data-tab="rota" title="Rota FPL">✈</button>
+            <button type="button" class="tool-tab" data-tab="medir" title="Medir">📏</button>
             <button type="button" class="tool-tab" data-tab="camadas" title="Camadas">☰</button>
             <button type="button" class="tool-tab" data-tab="selecionadas" title="Selecionadas">✓</button>
             <button type="button" class="tool-tab" data-tab="historico" title="Histórico">🕐</button>
@@ -121,6 +123,12 @@
               <button type="submit"><span>Traçar rota</span></button>
             </form>
             <p id="rota-status" class="status"></p>
+          </div>
+
+          <div id="tab-medir" class="tool-tab-panel hidden">
+            <h3>Medir distância e rumo</h3>
+            <p class="empty-hint">Clique no mapa pra marcar pontos. Cada clique acrescenta um trecho, mostrando rumo, distância em km e em milhas náuticas.</p>
+            <button id="medir-limpar" type="button">Limpar medição</button>
           </div>
 
           <div id="tab-camadas" class="tool-tab-panel hidden">

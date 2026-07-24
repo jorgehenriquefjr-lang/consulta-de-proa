@@ -113,6 +113,72 @@ let routeLine = null;
 let lastDestino = null;
 const fplLayer = L.layerGroup().addTo(map);
 
+// ====== Medir distância e rumo (clique no mapa), como no REDEMET ======
+const EARTH_RADIUS_KM = 6371.0088;
+const KM_PARA_NM = 0.539957;
+
+function calcularRumoDistancia(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const dPhi = toRad(lat2 - lat1);
+  const dLambda = toRad(lon2 - lon1);
+
+  const a = Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanciaKm = EARTH_RADIUS_KM * c;
+
+  const y = Math.sin(dLambda) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+  const rumo = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+
+  return { rumo, distanciaKm, distanciaNm: distanciaKm * KM_PARA_NM };
+}
+
+const medirLayer = L.layerGroup().addTo(map);
+let medirPontos = [];
+
+function medirAtivo() {
+  const painelAberto = !document.getElementById("tool-panel").classList.contains("hidden");
+  const abaMedir = !document.getElementById("tab-medir").classList.contains("hidden");
+  return painelAberto && abaMedir;
+}
+
+function adicionarPontoMedicao(latlng) {
+  const anterior = medirPontos[medirPontos.length - 1];
+  medirPontos.push(latlng);
+
+  L.circleMarker(latlng, {
+    radius: 5,
+    color: "#7c3aed",
+    weight: 2,
+    fillColor: "#7c3aed",
+    fillOpacity: 0.9,
+  }).addTo(medirLayer);
+
+  if (anterior) {
+    const { rumo, distanciaKm, distanciaNm } = calcularRumoDistancia(
+      anterior.lat, anterior.lng, latlng.lat, latlng.lng
+    );
+    L.polyline([anterior, latlng], { color: "#7c3aed", weight: 3, dashArray: "4 8" })
+      .bindTooltip(
+        `${rumo.toFixed(1)}° · ${distanciaKm.toFixed(1)} km · ${distanciaNm.toFixed(1)} NM`,
+        { permanent: true, direction: "center", className: "route-label" }
+      )
+      .addTo(medirLayer)
+      .openTooltip();
+  }
+}
+
+map.on("click", (e) => {
+  if (medirAtivo()) adicionarPontoMedicao(e.latlng);
+});
+
+document.getElementById("medir-limpar").addEventListener("click", () => {
+  medirLayer.clearLayers();
+  medirPontos = [];
+});
+
 function setStatus(text, kind) {
   statusEl.textContent = text || "";
   statusEl.className = "status" + (kind ? " " + kind : "");
@@ -419,6 +485,7 @@ function initToolPanel() {
   const tabPanels = {
     buscar: document.getElementById("tab-buscar"),
     rota: document.getElementById("tab-rota"),
+    medir: document.getElementById("tab-medir"),
     camadas: document.getElementById("tab-camadas"),
     selecionadas: document.getElementById("tab-selecionadas"),
     historico: document.getElementById("tab-historico"),
