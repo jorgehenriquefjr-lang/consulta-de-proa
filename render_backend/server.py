@@ -127,6 +127,19 @@ METAR_TAF_CACHE_TTL = 10 * 60  # METAR/TAF mudam com frequência; cache curto s�
 AVISOS_CACHE_TTL = 10 * 60  # SIGMET/GAMET/aviso de aeródromo mudam com frequência
 _radar_cache = {}  # (area, tipo) -> (expira_em, dado)
 RADAR_CACHE_TTL = 10 * 60  # imagens de radar são geradas a cada ~10min
+_tsc_cache = {}  # "tsc" -> (expira_em, dado)
+TSC_CACHE_TTL = 10 * 60  # células de tempo severo convectivo mudam com frequência
+_status_aerodromos_cache = {}  # pais -> (expira_em, dado)
+STATUS_AERODROMOS_CACHE_TTL = 10 * 60  # acompanha a frequência de atualização do METAR
+
+# Cores de categoria de voo retornadas por /aerodromos/status (VFR/marginal/IFR).
+STATUS_COR_HEX = {
+    "g": "#22c55e",
+    "gw": "#22c55e",
+    "y": "#eab308",
+    "r": "#ef4444",
+    "cinza": "#9ca3af",
+}
 
 
 def dms_to_dd(deg: str, minutes: str, seconds: str, hemisphere: str) -> float:
@@ -367,6 +380,9 @@ def _redemet_get(path: str, params: dict):
     query = {"api_key": REDEMET_API_KEY, **params}
     resp = requests.get(f"{REDEMET_BASE_URL}{path}", params=query, timeout=10)
     resp.raise_for_status()
+    # A REDEMET não declara charset no Content-Type; sem isso o requests
+    # arrisca adivinhar Latin-1 e corromper acentos (ex.: "Não" -> "N�o").
+    resp.encoding = "utf-8"
     payload = resp.json()
     if not payload.get("status"):
         raise ValueError(str(payload.get("message") or "Falha na API da REDEMET."))
@@ -399,9 +415,10 @@ def fetch_avisos(icao: str, pais: str = "Brasil"):
 
     aviso_aerodromo = _mensagens_ativas(_redemet_get(f"/mensagens/aviso/{icao}", {}).get("data", []))
     sigmet = _mensagens_ativas(_redemet_get("/mensagens/sigmet", {"pais": pais}).get("data", []))
+    airmet = _mensagens_ativas(_redemet_get("/mensagens/airmet", {"pais": pais}).get("data", []))
     gamet = _mensagens_ativas(_redemet_get("/mensagens/gamet", {"pais": pais}).get("data", []))
 
-    resultado = {"aviso_aerodromo": aviso_aerodromo, "sigmet": sigmet, "gamet": gamet}
+    resultado = {"aviso_aerodromo": aviso_aerodromo, "sigmet": sigmet, "airmet": airmet, "gamet": gamet}
     with _cache_lock:
         _avisos_cache[cache_key] = (now + AVISOS_CACHE_TTL, resultado)
     return resultado
@@ -443,6 +460,67 @@ def fetch_radar(area: str = "ga", tipo: str = "maxcappi"):
     }
     with _cache_lock:
         _radar_cache[cache_key] = (now + RADAR_CACHE_TTL, resultado)
+    return resultado
+
+
+def fetch_tsc():
+    """Busca, na REDEMET, as células de tempo severo convectivo (STSC) detectadas no Brasil."""
+    now = time.time()
+    with _cache_lock:
+        cached = _tsc_cache.get("tsc")
+        if cached and cached[0] > now:
+            return cached[1]
+
+    dados = _redemet_get("/produtos/stsc", {})
+    grupos = dados.get("stsc") or []
+    pontos = [
+        {"lat": float(p["la"]), "lon": float(p["lo"])}
+        for grupo in grupos
+        for p in grupo
+        if "la" in p and "lo" in p
+    ]
+
+    resultado = {
+        "pontos": pontos,
+        "atualizado_em": (dados.get("info") or {}).get("ultima_ocorrencia"),
+    }
+    with _cache_lock:
+        _tsc_cache["tsc"] = (now + TSC_CACHE_TTL, resultado)
+    return resultado
+
+
+def fetch_status_aerodromos(pais: str = "BRASIL"):
+    """Busca, na REDEMET, o status por categoria de voo dos aeródromos com METAR disponível."""
+    now = time.time()
+    with _cache_lock:
+        cached = _status_aerodromos_cache.get(pais)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    linhas = _redemet_get("/aerodromos/status", {"pais": pais})
+    pontos = []
+    for linha in linhas or []:
+        if len(linha) < 5:
+            continue
+        icao, nome, lat, lon, cor = linha[0], linha[1], linha[2], linha[3], linha[4]
+        if cor == "cinza":
+            continue  # sem METAR disponível para esta localidade
+        try:
+            lat_f, lon_f = float(lat), float(lon)
+        except (TypeError, ValueError):
+            continue
+        pontos.append({
+            "icao": icao,
+            "nome": nome,
+            "lat": lat_f,
+            "lon": lon_f,
+            "cor": STATUS_COR_HEX.get(cor, "#9ca3af"),
+            "info": linha[5] if len(linha) > 5 else None,
+        })
+
+    resultado = {"pontos": pontos}
+    with _cache_lock:
+        _status_aerodromos_cache[pais] = (now + STATUS_AERODROMOS_CACHE_TTL, resultado)
     return resultado
 
 
@@ -606,6 +684,31 @@ def radar():
 
     try:
         resultado = fetch_radar(area, tipo)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except (requests.RequestException, ValueError) as e:
+        return jsonify({"error": f"Falha ao consultar a REDEMET: {e}"}), 502
+
+    return jsonify(resultado)
+
+
+@app.route("/api/tsc")
+def tsc():
+    try:
+        resultado = fetch_tsc()
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except (requests.RequestException, ValueError) as e:
+        return jsonify({"error": f"Falha ao consultar a REDEMET: {e}"}), 502
+
+    return jsonify(resultado)
+
+
+@app.route("/api/status_aerodromos")
+def status_aerodromos():
+    pais = (request.args.get("pais") or "BRASIL").strip()
+    try:
+        resultado = fetch_status_aerodromos(pais)
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 503
     except (requests.RequestException, ValueError) as e:

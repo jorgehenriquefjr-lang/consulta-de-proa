@@ -14,6 +14,7 @@ const tafTextEl = document.getElementById("taf-text");
 const avisosBox = document.getElementById("avisos-box");
 const avisoAerodromoTextEl = document.getElementById("aviso-aerodromo-text");
 const sigmetTextEl = document.getElementById("sigmet-text");
+const airmetTextEl = document.getElementById("airmet-text");
 const gametTextEl = document.getElementById("gamet-text");
 
 const rotaForm = document.getElementById("rota-form");
@@ -124,6 +125,57 @@ fetch(`${API_BASE}/api/radar`)
   })
   .catch(() => {
     // radar é um extra; se a REDEMET estiver fora do ar, o resto do app segue normal
+  });
+
+// TSC (Tempo Severo Convectivo): células convectivas ativas, detectadas por
+// radar/descargas atmosféricas. Cada ponto é uma célula de grade ~0.1°.
+fetch(`${API_BASE}/api/tsc`)
+  .then((resp) => resp.json())
+  .then((data) => {
+    const pontos = data.pontos || [];
+    if (!pontos.length) return;
+    const tscLayer = L.layerGroup(
+      pontos.map((p) =>
+        L.circleMarker([p.lat, p.lon], {
+          radius: 3,
+          color: "#dc2626",
+          weight: 0,
+          fillOpacity: 0.7,
+        })
+      )
+    );
+    layersControl.addOverlay(tscLayer, "Tempo Severo Convectivo (REDEMET)");
+  })
+  .catch(() => {
+    // TSC é um extra; se a REDEMET estiver fora do ar, o resto do app segue normal
+  });
+
+// Tabuleiro METAR: status por categoria de voo (VFR/marginal/IFR) de todos os
+// aeródromos do Brasil que têm METAR disponível, como no painel da REDEMET.
+fetch(`${API_BASE}/api/status_aerodromos`)
+  .then((resp) => resp.json())
+  .then((data) => {
+    const pontos = data.pontos || [];
+    if (!pontos.length) return;
+    const tabuleiroLayer = L.layerGroup(
+      pontos.map((p) =>
+        L.circleMarker([p.lat, p.lon], {
+          radius: 7,
+          color: "#fff",
+          weight: 1,
+          fillColor: p.cor,
+          fillOpacity: 0.9,
+        }).bindPopup(
+          `<strong>${p.icao}</strong> - ${p.nome}<br><pre style="white-space:pre-wrap;margin:4px 0 0;font-size:11px">${
+            p.info || ""
+          }</pre>`
+        )
+      )
+    );
+    layersControl.addOverlay(tabuleiroLayer, "Tabuleiro METAR (REDEMET)");
+  })
+  .catch(() => {
+    // tabuleiro é um extra; se a REDEMET estiver fora do ar, o resto do app segue normal
   });
 
 // Cartas oficiais do DECEA (GeoAISWEB): catálogo completo no painel de camadas
@@ -367,6 +419,7 @@ async function loadAvisos(icao) {
   avisosBox.classList.remove("hidden");
   avisoAerodromoTextEl.textContent = "Consultando...";
   sigmetTextEl.textContent = "Consultando...";
+  airmetTextEl.textContent = "Consultando...";
   gametTextEl.textContent = "Consultando...";
 
   try {
@@ -376,15 +429,18 @@ async function loadAvisos(icao) {
       const erro = data.error || "Falha ao consultar.";
       avisoAerodromoTextEl.textContent = erro;
       sigmetTextEl.textContent = erro;
+      airmetTextEl.textContent = erro;
       gametTextEl.textContent = erro;
       return;
     }
     setAvisoText(avisoAerodromoTextEl, data.aviso_aerodromo, "Nenhum aviso de aeródromo vigente.");
     setAvisoText(sigmetTextEl, data.sigmet, "Nenhum SIGMET vigente.");
+    setAvisoText(airmetTextEl, data.airmet, "Nenhum AIRMET vigente.");
     setAvisoText(gametTextEl, data.gamet, "Nenhum GAMET vigente.");
   } catch (e) {
     avisoAerodromoTextEl.textContent = "Falha de conexão com o servidor.";
     sigmetTextEl.textContent = "Falha de conexão com o servidor.";
+    airmetTextEl.textContent = "Falha de conexão com o servidor.";
     gametTextEl.textContent = "Falha de conexão com o servidor.";
   }
 }
