@@ -421,14 +421,25 @@ def fetch_radar(area: str = "ga", tipo: str = "maxcappi"):
     # A API retorna uma lista aninhada (lista de listas); achata antes de procurar a estação.
     lista = [item for grupo in estacoes for item in (grupo if isinstance(grupo, list) else [grupo])]
     estacao = next((e for e in lista if e.get("localidade") == area), lista[0] if lista else None)
+    estacao = estacao or {}
+
+    def _float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
 
     resultado = {
         "area": area,
         "nome": RADAR_STATIONS.get(area, area),
         "tipo": tipo,
-        "path": (estacao or {}).get("path"),
-        "data": (estacao or {}).get("data"),
-        "raio": (estacao or {}).get("raio"),
+        "path": estacao.get("path"),
+        "data": estacao.get("data"),
+        "raio": estacao.get("raio"),
+        "lat_min": _float(estacao.get("lat_min")),
+        "lat_max": _float(estacao.get("lat_max")),
+        "lon_min": _float(estacao.get("lon_min")),
+        "lon_max": _float(estacao.get("lon_max")),
     }
     with _cache_lock:
         _radar_cache[cache_key] = (now + RADAR_CACHE_TTL, resultado)

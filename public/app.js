@@ -16,10 +16,6 @@ const avisoAerodromoTextEl = document.getElementById("aviso-aerodromo-text");
 const sigmetTextEl = document.getElementById("sigmet-text");
 const gametTextEl = document.getElementById("gamet-text");
 
-const radarImgEl = document.getElementById("radar-img");
-const radarStatusTextEl = document.getElementById("radar-status-text");
-const radarEstacaoEl = document.getElementById("radar-estacao");
-
 const rotaForm = document.getElementById("rota-form");
 const rotaInput = document.getElementById("rota-input");
 const rotaStatusEl = document.getElementById("rota-status");
@@ -108,6 +104,26 @@ fetch("https://api.rainviewer.com/public/weather-maps.json")
   })
   .catch(() => {
     // radar é um extra; se o RainViewer estiver fora do ar, o resto do app segue normal
+  });
+
+// Radar meteorológico (REDEMET): imagem da estação mais próxima (Gama/DF),
+// sobreposta no mapa nas coordenadas reais de cobertura (lat/lon min/max).
+fetch(`${API_BASE}/api/radar`)
+  .then((resp) => resp.json())
+  .then((data) => {
+    if (!data.path || data.lat_min == null || data.lon_min == null) return;
+    const bounds = [
+      [data.lat_min, data.lon_min],
+      [data.lat_max, data.lon_max],
+    ];
+    const radarRedemetLayer = L.imageOverlay(data.path, bounds, {
+      opacity: 0.6,
+      attribution: `Radar &copy; REDEMET (${data.nome})`,
+    });
+    layersControl.addOverlay(radarRedemetLayer, "Radar meteorológico (REDEMET)");
+  })
+  .catch(() => {
+    // radar é um extra; se a REDEMET estiver fora do ar, o resto do app segue normal
   });
 
 // Cartas oficiais do DECEA (GeoAISWEB): catálogo completo no painel de camadas
@@ -373,30 +389,6 @@ async function loadAvisos(icao) {
   }
 }
 
-async function loadRadar() {
-  radarStatusTextEl.textContent = "Consultando...";
-  radarImgEl.classList.add("hidden");
-
-  try {
-    const resp = await fetch(`${API_BASE}/api/radar`);
-    const data = await resp.json();
-    if (!resp.ok) {
-      radarStatusTextEl.textContent = data.error || "Falha ao consultar.";
-      return;
-    }
-    radarEstacaoEl.textContent = `(${data.nome})`;
-    if (data.path) {
-      radarImgEl.src = data.path;
-      radarImgEl.classList.remove("hidden");
-      radarStatusTextEl.textContent = `Atualizado em ${data.data} UTC`;
-    } else {
-      radarStatusTextEl.textContent = "Sem imagem disponível no momento.";
-    }
-  } catch (e) {
-    radarStatusTextEl.textContent = "Falha de conexão com o servidor.";
-  }
-}
-
 async function loadHistory() {
   try {
     const resp = await fetch(`${API_BASE}/api/historico?limit=25`);
@@ -565,7 +557,6 @@ rotaForm.addEventListener("submit", async (ev) => {
 });
 
 loadHistory();
-loadRadar();
 
 // ====== Painel de ferramentas (Buscar / Rota FPL / Camadas / Selecionadas / Histórico) ======
 function initToolPanel() {
