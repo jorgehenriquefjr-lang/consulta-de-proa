@@ -48,6 +48,16 @@ const baseLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
     "Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)",
 }).addTo(map);
 
+// Imagem de satélite (Esri World Imagery): gratuita, sem chave de API.
+const satelliteLayer = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  {
+    maxZoom: 19,
+    attribution:
+      "Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+  }
+);
+
 const openAipLayer = L.tileLayer(
   `https://{s}.api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${OPENAIP_API_KEY}`,
   {
@@ -63,10 +73,14 @@ const openAipLayer = L.tileLayer(
 // pra não ficar embaixo do botão de fechar do painel.
 const isCompactLayout = window.matchMedia("(max-width: 640px)").matches;
 const layersControl = L.control
-  .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, {
-    collapsed: true,
-    position: isCompactLayout ? "bottomleft" : "topright",
-  })
+  .layers(
+    { "Topográfico": baseLayer, "Satélite": satelliteLayer },
+    { "Espaço aéreo (OpenAIP)": openAipLayer },
+    {
+      collapsed: true,
+      position: isCompactLayout ? "bottomleft" : "topright",
+    }
+  )
   .addTo(map);
 
 // Radar meteorológico (RainViewer): mosaico global gratuito, sem chave de API.
