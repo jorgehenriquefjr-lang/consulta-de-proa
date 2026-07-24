@@ -18,7 +18,7 @@
         <span class="brand-icon">✈</span>
         <div class="brand-text">
           <strong>Consulta de Proa</strong>
-          <span>Origem fixa · SBNV — Goiânia/GO</span>
+          <span id="origem-brand">Origem: SBNV — Goiânia/GO</span>
         </div>
       </div>
       <nav class="toolbar-tools">
@@ -44,6 +44,19 @@
 
         <div class="tool-panel-body">
           <div id="tab-buscar" class="tool-tab-panel">
+            <div class="origin-box">
+              <span class="origin-label">Origem</span>
+              <div class="origin-row">
+                <div class="input-wrap origin-input-wrap">
+                  <span class="input-icon">✈</span>
+                  <input id="origem-input" placeholder="SBNV (padrão)" maxlength="24" autocomplete="off">
+                </div>
+                <label class="origin-fix" title="Salva esta origem para as próximas buscas">
+                  <input type="checkbox" id="origem-fixar">
+                  <span>Fixar</span>
+                </label>
+              </div>
+            </div>
             <form id="search-form">
               <div class="input-wrap">
                 <span class="input-icon">⌕</span>

@@ -198,6 +198,42 @@ body {
 h2, h3 { margin: 0 0 14px; }
 h3 { font-size: 13px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
 
+/* origem */
+.origin-box { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed var(--border); }
+.origin-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 6px;
+}
+.origin-row { display: flex; align-items: center; gap: 8px; }
+.origin-input-wrap { flex: 1; }
+input#origem-input {
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px 12px 10px 40px;
+}
+.origin-fix {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.origin-fix input { margin: 0; accent-color: var(--accent); cursor: pointer; }
+.origin-fix:has(input:checked) { color: var(--accent); }
+
 /* search */
 #search-form { display: flex; flex-direction: column; gap: 10px; }
 
@@ -426,5 +462,22 @@ tbody tr:last-child td { border-bottom: none; }
   .brand-text span { display: none; }
   .tool-btn { padding: 9px 10px; font-size: 15px; }
   .tool-btn-label { display: none; }
-  .tool-panel { width: 100%; max-width: 100%; }
+
+  /* painel vira um cartão preso no topo (não cobre o mapa inteiro) para o
+     mapa continuar visível abaixo enquanto o usuário busca/consulta camadas */
+  .tool-panel {
+    width: 100%;
+    max-width: 100%;
+    bottom: auto;
+    height: 58vh;
+    border-radius: 0 0 18px 18px;
+    box-shadow: 0 16px 32px -14px rgba(15, 23, 42, 0.35);
+  }
+
+  /* as abas já existem na toolbar de cima; a 2ª fileira só duplicava e
+     empurrava o conteúdo pra baixo numa tela pequena */
+  .tool-panel-tabs { display: none; }
+  .tool-panel-header { justify-content: flex-end; }
+
+  .map-legend-badge { font-size: 11px; padding: 6px 10px; }
 }

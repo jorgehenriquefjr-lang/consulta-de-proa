@@ -11,10 +11,25 @@ const rotaForm = document.getElementById("rota-form");
 const rotaInput = document.getElementById("rota-input");
 const rotaStatusEl = document.getElementById("rota-status");
 
+const origemInput = document.getElementById("origem-input");
+const origemFixarCheckbox = document.getElementById("origem-fixar");
+const origemBrandEl = document.getElementById("origem-brand");
+
 // Gere sua chave grátis em openaip.net (conta > API keys) e cole aqui.
 const OPENAIP_API_KEY = "c78fad77a276a17e092101fc1c2753b4";
 
-const ORIGEM = { icao: "SBNV", lat: -16.625556, lon: -49.349444 };
+// Origem padrão (SBNV). O usuário pode consultar a partir de qualquer
+// aeródromo/coordenada; "currentOrigem" é atualizada a cada busca com o que
+// o backend resolveu, e refletida no marcador do mapa e no cabeçalho.
+const ORIGEM = {
+  icao: "SBNV",
+  name: "AERÓDROMO NACIONAL DE AVIAÇÃO",
+  city: "GOIÂNIA",
+  state: "GO",
+  lat: -16.625556,
+  lon: -49.349444,
+};
+let currentOrigem = { ...ORIGEM };
 
 // zoomControl fica em bottomright pra não colidir com o painel de ferramentas
 // (docked em top:0/left:0 sobre o mapa em tela cheia).
@@ -38,8 +53,15 @@ const openAipLayer = L.tileLayer(
   }
 );
 
+// No celular o painel de ferramentas ocupa a largura toda no topo, então o
+// seletor de camadas (padrão: topright) vai pra um canto livre (bottomleft)
+// pra não ficar embaixo do botão de fechar do painel.
+const isCompactLayout = window.matchMedia("(max-width: 640px)").matches;
 L.control
-  .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, { collapsed: true })
+  .layers(null, { "Espaço aéreo (OpenAIP)": openAipLayer }, {
+    collapsed: true,
+    position: isCompactLayout ? "bottomleft" : "topright",
+  })
   .addTo(map);
 
 // Cartas oficiais do DECEA (GeoAISWEB): catálogo completo no painel de camadas
@@ -54,9 +76,14 @@ function decealChartLayer(layerName) {
   });
 }
 
-let originMarker = L.marker([ORIGEM.lat, ORIGEM.lon])
+function origemPopupText(origem) {
+  const local = [origem.city, origem.state].filter(Boolean).join("/");
+  return `${origem.icao} - ${origem.name}${local ? ` (${local})` : ""}`;
+}
+
+let originMarker = L.marker([currentOrigem.lat, currentOrigem.lon])
   .addTo(map)
-  .bindPopup("SBNV - Aeródromo Nacional de Aviação (Goiânia/GO)");
+  .bindPopup(origemPopupText(currentOrigem));
 
 let destMarker = null;
 let routeLine = null;
@@ -77,7 +104,7 @@ function drawFplRoute(pontosRota) {
   fplLayer.clearLayers();
 
   const pontos = [
-    { ident: ORIGEM.icao, tipo: "origem", lat: ORIGEM.lat, lon: ORIGEM.lon },
+    { ident: currentOrigem.icao, tipo: "origem", lat: currentOrigem.lat, lon: currentOrigem.lon },
     ...pontosRota,
     ...(lastDestino
       ? [{ ident: lastDestino.icao, tipo: "destino", lat: lastDestino.lat, lon: lastDestino.lon }]
@@ -103,7 +130,16 @@ function drawFplRoute(pontosRota) {
   map.fitBounds(line.getBounds(), { padding: [30, 30] });
 }
 
+function updateOrigemUI(origem) {
+  currentOrigem = origem;
+  originMarker.setLatLng([origem.lat, origem.lon]).setPopupContent(origemPopupText(origem));
+  const local = [origem.city, origem.state].filter(Boolean).join("/");
+  origemBrandEl.textContent = `Origem: ${origem.icao}${local ? ` — ${local}` : ""}`;
+}
+
 function drawRoute(origem, destino, proaMagnetica, distanciaNm) {
+  updateOrigemUI(origem);
+
   if (destMarker) map.removeLayer(destMarker);
   if (routeLine) map.removeLayer(routeLine);
 
@@ -181,29 +217,36 @@ async function loadHistory() {
 // (ex.: 1454S05104W ou 145430S0510422W)
 const FPL_COORD_REGEX = /^(?:\d{4}[NS]\d{5}|\d{6}[NS]\d{7})[EW]$/;
 
-async function buscarProa(raw) {
+function parseIcaoOuCoord(raw) {
   raw = raw.trim().toUpperCase().replace(/\s+/g, "");
-  if (!raw) return;
-
-  let icao, coord;
   if (FPL_COORD_REGEX.test(raw)) {
     // Só a coordenada, sem indicador (localidade tipo ZZZZ)
-    icao = "ZZZZ";
-    coord = raw;
-  } else if (raw.startsWith("ZZZZ") && FPL_COORD_REGEX.test(raw.slice(4))) {
-    // "ZZZZ" + coordenada colados ou com espaço
-    icao = "ZZZZ";
-    coord = raw.slice(4);
-  } else {
-    icao = raw;
-    coord = "";
+    return { icao: "ZZZZ", coord: raw };
   }
+  if (raw.startsWith("ZZZZ") && FPL_COORD_REGEX.test(raw.slice(4))) {
+    // "ZZZZ" + coordenada colados ou com espaço
+    return { icao: "ZZZZ", coord: raw.slice(4) };
+  }
+  return { icao: raw, coord: "" };
+}
+
+async function buscarProa(raw) {
+  const { icao, coord } = parseIcaoOuCoord(raw);
+  if (!icao) return;
 
   setStatus(icao === "ZZZZ" ? "Calculando a partir da coordenada..." : "Consultando AISWEB...", "loading");
   resultCard.classList.add("hidden");
 
   const params = new URLSearchParams({ icao });
   if (icao === "ZZZZ") params.set("coord", coord);
+
+  // Origem: só manda pro backend quando o usuário customizou (padrão continua SBNV).
+  const origemRaw = origemInput.value.trim().toUpperCase().replace(/\s+/g, "");
+  if (origemRaw && origemRaw !== "SBNV") {
+    const origemParsed = parseIcaoOuCoord(origemRaw);
+    params.set("origem_icao", origemParsed.icao);
+    if (origemParsed.icao === "ZZZZ") params.set("origem_coord", origemParsed.coord);
+  }
 
   // O backend gratuito "dorme" após um tempo sem uso e pode levar até um
   // minuto para acordar na primeira consulta; avisa se estiver demorando.
@@ -232,6 +275,31 @@ form.addEventListener("submit", (ev) => {
   ev.preventDefault();
   buscarProa(input.value);
 });
+
+// ====== Origem customizável (padrão SBNV, com opção de fixar) ======
+const ORIGEM_STORAGE_KEY = "proa_origem_fixa";
+
+function initOrigem() {
+  const salva = localStorage.getItem(ORIGEM_STORAGE_KEY);
+  if (salva) {
+    origemInput.value = salva;
+    origemFixarCheckbox.checked = true;
+  }
+
+  function salvarSeFixado() {
+    if (origemFixarCheckbox.checked) {
+      const valor = origemInput.value.trim().toUpperCase();
+      if (valor) localStorage.setItem(ORIGEM_STORAGE_KEY, valor);
+    } else {
+      localStorage.removeItem(ORIGEM_STORAGE_KEY);
+    }
+  }
+
+  origemFixarCheckbox.addEventListener("change", salvarSeFixado);
+  origemInput.addEventListener("change", salvarSeFixado);
+}
+
+initOrigem();
 
 document.querySelectorAll("#saved-points .chip").forEach((btn) => {
   btn.addEventListener("click", () => {

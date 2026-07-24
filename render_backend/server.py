@@ -31,7 +31,7 @@ try:
 except Exception:
     db = None
 
-# ====== Ponto de origem fixo: SBNV (Goiânia/GO) ======
+# ====== Origem padrão: SBNV (Goiânia/GO) — pode ser trocada por parâmetro ======
 ORIGEM = {
     "icao": "SBNV",
     "name": "AERÓDROMO NACIONAL DE AVIAÇÃO",
@@ -310,27 +310,27 @@ def health():
     return jsonify({"status": "ok", "service": "consulta-de-proas-backend"})
 
 
-@app.route("/api/buscar_proa")
-def buscar_proa():
-    icao = (request.args.get("icao") or "").strip().upper()
+def resolve_ponto(icao_raw: str, coord_raw: str = ""):
+    """Resolve um ponto (origem ou destino) a partir de um IND LOC ou, para
+    ZZZZ, de uma coordenada do Campo 18 do FPL. Retorna (ponto, erro, status);
+    ponto é None quando erro não é None."""
+    icao_raw = (icao_raw or "").strip().upper()
+    coord_raw = (coord_raw or "").strip().upper().replace(" ", "")
 
-    # Se vier só a coordenada no campo icao (sem ZZZZ), trata como Campo 18 também
-    if is_fpl_coord(icao.replace(" ", "")):
-        icao, coord_override = "ZZZZ", icao.replace(" ", "")
-    else:
-        coord_override = None
+    # Se vier só a coordenada no campo do indicativo (sem ZZZZ), trata como Campo 18 também
+    if is_fpl_coord(icao_raw.replace(" ", "")):
+        icao_raw, coord_raw = "ZZZZ", icao_raw.replace(" ", "")
 
-    if icao == "ZZZZ":
-        coord_raw = coord_override or (request.args.get("coord") or "").strip().upper().replace(" ", "")
+    if icao_raw == "ZZZZ":
         parsed = parse_fpl_coord(coord_raw)
         if not parsed:
-            return jsonify({
-                "error": "Coordenada inválida para ZZZZ. Use o formato do Campo 18 do FPL, "
-                         "com ou sem segundos (ex.: 1454S05104W ou 145430S0510422W)."
-            }), 400
+            return None, (
+                "Coordenada inválida para ZZZZ. Use o formato do Campo 18 do FPL, "
+                "com ou sem segundos (ex.: 1454S05104W ou 145430S0510422W)."
+            ), 400
         lat, lon = parsed
         known = KNOWN_POINTS.get(coord_raw)
-        destino = {
+        ponto = {
             "icao": "ZZZZ",
             "name": known["name"] if known else "Localidade sem indicador (coordenadas do Campo 18)",
             "city": known["city"] if known else "",
@@ -338,26 +338,49 @@ def buscar_proa():
             "lat": lat,
             "lon": lon,
         }
+        return ponto, None, None
+
+    if not ICAO_RE.match(icao_raw):
+        return None, "IND LOC inválido. Use de 3 a 6 letras/números (ex.: SBGR, SDL7) ou ZZZZ com coordenada.", 400
+
+    try:
+        ponto = fetch_aerodromo(icao_raw)
+    except requests.RequestException:
+        return None, "Falha ao consultar o AISWEB. Tente novamente.", 502
+
+    if not ponto:
+        return None, f"Aeródromo {icao_raw} não encontrado no AISWEB nem no backup local.", 404
+
+    return ponto, None, None
+
+
+@app.route("/api/buscar_proa")
+def buscar_proa():
+    icao = request.args.get("icao") or ""
+    coord = request.args.get("coord") or ""
+
+    destino, erro, status = resolve_ponto(icao, coord)
+    if erro:
+        return jsonify({"error": erro}), status
+
+    # Origem: por padrão SBNV, mas o usuário pode consultar a partir de
+    # qualquer aeródromo/coordenada (opção "fixar origem" no frontend).
+    origem_icao_param = request.args.get("origem_icao") or ""
+    if origem_icao_param.strip():
+        origem, erro_origem, status_origem = resolve_ponto(origem_icao_param, request.args.get("origem_coord") or "")
+        if erro_origem:
+            return jsonify({"error": f"Origem: {erro_origem}"}), status_origem
     else:
-        if not ICAO_RE.match(icao):
-            return jsonify({"error": "IND LOC inválido. Use de 3 a 6 letras/números (ex.: SBGR, SDL7) ou ZZZZ com coordenada."}), 400
-
-        try:
-            destino = fetch_aerodromo(icao)
-        except requests.RequestException:
-            return jsonify({"error": "Falha ao consultar o AISWEB. Tente novamente."}), 502
-
-        if not destino:
-            return jsonify({"error": f"Aeródromo {icao} não encontrado no AISWEB nem no backup local."}), 404
+        origem = ORIGEM
 
     distancia_nm, proa_verdadeira = great_circle(
-        ORIGEM["lat"], ORIGEM["lon"], destino["lat"], destino["lon"]
+        origem["lat"], origem["lon"], destino["lat"], destino["lon"]
     )
     declinacao = magnetic_declination(destino["lat"], destino["lon"])
     proa_magnetica = (proa_verdadeira - declinacao) % 360
 
     resultado = {
-        "origem": ORIGEM,
+        "origem": origem,
         "destino": destino,
         "distancia_nm": round(distancia_nm, 1),
         "proa_verdadeira": round(proa_verdadeira, 1),
