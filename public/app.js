@@ -171,7 +171,7 @@ fetch(`${API_BASE}/api/status_aerodromos`)
           }</pre>`
         )
       )
-    );
+    ).addTo(map);
     layersControl.addOverlay(tabuleiroLayer, "Tabuleiro METAR (REDEMET)");
   })
   .catch(() => {
