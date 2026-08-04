@@ -17,6 +17,9 @@ const sigmetTextEl = document.getElementById("sigmet-text");
 const airmetTextEl = document.getElementById("airmet-text");
 const gametTextEl = document.getElementById("gamet-text");
 
+const cartasBox = document.getElementById("cartas-box");
+const cartasListEl = document.getElementById("cartas-list");
+
 const rotaForm = document.getElementById("rota-form");
 const rotaInput = document.getElementById("rota-input");
 const rotaStatusEl = document.getElementById("rota-status");
@@ -55,10 +58,17 @@ const baseLayer = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
 }).addTo(map);
 
 // Imagem de satélite (Esri World Imagery): gratuita, sem chave de API.
+// maxNativeZoom é o nível real de resolução do Esri (varia por região; em
+// área rural pode ser bem menor que em capitais); maxZoom acima disso deixa
+// o Leaflet ampliar (upscale) o último tile carregado, permitindo "chegar
+// mais perto do chão" pra conferir um ponto mesmo onde a imagem já não tem
+// mais detalhe novo — é a forma de zoom mais próximo possível sem trocar de
+// provedor (Google/Bing/Mapbox exigem chave paga ou violam termos de uso).
 const satelliteLayer = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   {
-    maxZoom: 19,
+    maxZoom: 22,
+    maxNativeZoom: 19,
     attribution:
       "Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community",
   }
@@ -180,12 +190,83 @@ fetch(`${API_BASE}/api/status_aerodromos`)
 
 // Cartas oficiais do DECEA (GeoAISWEB): catálogo completo no painel de camadas
 const GEOAISWEB_WMS = "https://geoaisweb.decea.gov.br/geoserver/ICA/wms";
+// Abaixo de 100%, dá pra ver o satélite por trás da carta e conferir um ponto
+// contra o terreno real; cada camada ativa tem seu próprio controle na aba
+// "Selecionadas", partindo desse valor.
+const DEFAULT_CHART_OPACITY = 0.7;
+// Registro único de camadas "ativas" (aba Selecionadas), com opacidade — usado
+// pelo catálogo de cartas WMS do DECEA e pelas cartas de aproximação (IAC/VAC)
+// calibradas manualmente sobre o satélite, pra terem o mesmo controle de
+// transparência sem duplicar a UI.
+const activeLayers = new Map(); // nome -> { leaflet, label, opacity, onRemove }
+const selectedListEl = document.getElementById("layers-selected-list");
+const selectedEmptyEl = document.getElementById("layers-selected-empty");
+
+function updateSelectedList() {
+  selectedListEl.innerHTML = "";
+  selectedEmptyEl.classList.toggle("hidden", activeLayers.size > 0);
+  activeLayers.forEach((entry, name) => {
+    const li = document.createElement("li");
+
+    const row = document.createElement("div");
+    row.className = "layers-selected-row";
+    const span = document.createElement("span");
+    span.textContent = entry.label;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Remover";
+    btn.addEventListener("click", () => (entry.onRemove ? entry.onRemove() : removeActiveLayer(name)));
+    row.appendChild(span);
+    row.appendChild(btn);
+
+    // Transparência da carta sobre o mapa base (satélite/topográfico), pra
+    // dar pra ver o terreno por baixo e conferir um ponto visualmente.
+    const opacityRow = document.createElement("label");
+    opacityRow.className = "layers-selected-opacity";
+    const opacityText = document.createElement("span");
+    opacityText.textContent = "Transparência";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "10";
+    slider.max = "100";
+    slider.step = "5";
+    slider.value = String(Math.round(entry.opacity * 100));
+    slider.addEventListener("input", () => {
+      entry.opacity = Number(slider.value) / 100;
+      entry.leaflet.setOpacity(entry.opacity);
+    });
+    opacityRow.appendChild(opacityText);
+    opacityRow.appendChild(slider);
+
+    li.appendChild(row);
+    li.appendChild(opacityRow);
+    selectedListEl.appendChild(li);
+  });
+}
+
+function addActiveLayer(name, label, leaflet, opacity = DEFAULT_CHART_OPACITY, onRemove = null) {
+  leaflet.addTo(map);
+  if (leaflet.setOpacity) leaflet.setOpacity(opacity);
+  activeLayers.set(name, { leaflet, label, opacity, onRemove });
+  updateSelectedList();
+}
+
+function removeActiveLayer(name) {
+  const entry = activeLayers.get(name);
+  if (entry) {
+    map.removeLayer(entry.leaflet);
+    activeLayers.delete(name);
+  }
+  updateSelectedList();
+}
+
 function decealChartLayer(layerName) {
   return L.tileLayer.wms(GEOAISWEB_WMS, {
     layers: layerName,
     format: "image/png",
     transparent: true,
     version: "1.1.0",
+    opacity: DEFAULT_CHART_OPACITY,
     attribution: "Cartas aeronáuticas &copy; DECEA",
   });
 }
@@ -398,6 +479,7 @@ function showResult(data) {
   drawRoute(data.origem, data.destino, data.proa_magnetica, data.distancia_nm);
   loadMetarTaf(data.destino.icao);
   loadAvisos(data.destino.icao);
+  loadCartas(data.destino.icao);
 }
 
 async function loadMetarTaf(icao) {
@@ -680,28 +762,8 @@ initToolPanel();
 async function initLayersTree() {
   const searchInput = document.getElementById("layers-search");
   const treeEl = document.getElementById("layers-tree");
-  const selectedList = document.getElementById("layers-selected-list");
-  const selectedEmpty = document.getElementById("layers-selected-empty");
 
-  const activeLayers = new Map(); // nome da camada -> { leaflet, label }
   const checkboxByLayer = new Map(); // nome da camada -> <input> (só existe se já renderizado)
-
-  function updateSelectedList() {
-    selectedList.innerHTML = "";
-    selectedEmpty.classList.toggle("hidden", activeLayers.size > 0);
-    activeLayers.forEach((entry, name) => {
-      const li = document.createElement("li");
-      const span = document.createElement("span");
-      span.textContent = entry.label;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.textContent = "Remover";
-      btn.addEventListener("click", () => setLayerActive(name, entry.label, false));
-      li.appendChild(span);
-      li.appendChild(btn);
-      selectedList.appendChild(li);
-    });
-  }
 
   function setLayerActive(name, label, active) {
     const checkbox = checkboxByLayer.get(name);
@@ -709,17 +771,13 @@ async function initLayersTree() {
 
     if (active) {
       if (!activeLayers.has(name)) {
-        const leaflet = decealChartLayer(name).addTo(map);
-        activeLayers.set(name, { leaflet, label });
+        addActiveLayer(name, label, decealChartLayer(name), DEFAULT_CHART_OPACITY, () =>
+          setLayerActive(name, label, false)
+        );
       }
     } else {
-      const entry = activeLayers.get(name);
-      if (entry) {
-        map.removeLayer(entry.leaflet);
-        activeLayers.delete(name);
-      }
+      removeActiveLayer(name);
     }
-    updateSelectedList();
   }
 
   function makeLayerItem(layer) {
@@ -843,3 +901,302 @@ async function initLayersTree() {
 }
 
 initLayersTree();
+
+// ====== Cartas de aproximação (IAC/VAC): lista por aeródromo + calibração ======
+// Não existe fonte georreferenciada pra essas cartas (são PDFs de procedimento,
+// não WMS): o usuário mesmo calibra clicando em 2 pontos que reconhece na
+// carta e informando a coordenada real de cada um; a partir disso calculamos
+// rotação+escala e encaixamos a carta sobre o satélite via
+// L.imageOverlay.rotated (plugin em vendor/).
+async function loadCartas(icao) {
+  if (!icao || icao === "ZZZZ") {
+    cartasBox.classList.add("hidden");
+    return;
+  }
+
+  cartasBox.classList.remove("hidden");
+  cartasListEl.innerHTML = '<p class="empty-hint">Consultando...</p>';
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/cartas?icao=${icao}`);
+    const data = await resp.json();
+    const lista = (resp.ok && data.cartas) || [];
+    if (!lista.length) {
+      cartasListEl.innerHTML =
+        '<p class="empty-hint">Nenhuma carta de aproximação encontrada para este aeródromo.</p>';
+      return;
+    }
+    cartasListEl.innerHTML = "";
+    lista.forEach((carta) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "carta-chip";
+      btn.textContent = `${carta.tipo} · ${carta.nome}${carta.codigo ? " " + carta.codigo : ""}`;
+      btn.addEventListener("click", () => openCartaModal(icao, carta));
+      cartasListEl.appendChild(btn);
+    });
+  } catch (e) {
+    cartasListEl.innerHTML = '<p class="empty-hint">Falha de conexão com o servidor.</p>';
+  }
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const cartaModal = document.getElementById("carta-modal");
+const cartaModalTitle = document.getElementById("carta-modal-title");
+const cartaModalClose = document.getElementById("carta-modal-close");
+const cartaCanvas = document.getElementById("carta-canvas");
+const cartaModalStatus = document.getElementById("carta-modal-status");
+const cartaModalApply = document.getElementById("carta-modal-apply");
+const cartaModalReset = document.getElementById("carta-modal-reset");
+const cartaPointBoxEls = { 1: document.getElementById("carta-point-1"), 2: document.getElementById("carta-point-2") };
+const cartaPointEls = {
+  1: {
+    status: document.getElementById("carta-p1-status"),
+    lat: document.getElementById("carta-p1-lat"),
+    lon: document.getElementById("carta-p1-lon"),
+  },
+  2: {
+    status: document.getElementById("carta-p2-status"),
+    lat: document.getElementById("carta-p2-lat"),
+    lon: document.getElementById("carta-p2-lon"),
+  },
+};
+
+let cartaState = null; // { icao, carta, baseCanvas, points: {1,2}, activePoint }
+
+function armCartaPoint(n) {
+  if (!cartaState) return;
+  cartaState.activePoint = n;
+  cartaPointBoxEls[1].classList.toggle("active", n === 1);
+  cartaPointBoxEls[2].classList.toggle("active", n === 2);
+}
+
+function redrawCartaCanvas() {
+  if (!cartaState || !cartaState.baseCanvas) return;
+  const ctx = cartaCanvas.getContext("2d");
+  ctx.drawImage(cartaState.baseCanvas, 0, 0);
+  [1, 2].forEach((n) => {
+    const p = cartaState.points[n];
+    if (!p) return;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = n === 1 ? "#dc2626" : "#2563eb";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(n), p.x, p.y);
+  });
+}
+
+async function renderCartaPdf(pdfBytes) {
+  const pdf = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+  const page = await pdf.getPage(1);
+  const naturalViewport = page.getViewport({ scale: 1 });
+  // resolução boa o bastante pra ler detalhe sem pesar demais o canvas
+  const scale = Math.min(2.5, 1600 / naturalViewport.width);
+  const viewport = page.getViewport({ scale });
+
+  const baseCanvas = document.createElement("canvas");
+  baseCanvas.width = viewport.width;
+  baseCanvas.height = viewport.height;
+  await page.render({ canvasContext: baseCanvas.getContext("2d"), viewport }).promise;
+  return baseCanvas;
+}
+
+async function openCartaModal(icao, carta) {
+  cartaModal.classList.remove("hidden");
+  cartaModalTitle.textContent = `${icao} · ${carta.tipo} ${carta.nome}`;
+  cartaModalStatus.textContent = "Carregando carta...";
+
+  cartaState = { icao, carta, baseCanvas: null, points: { 1: null, 2: null }, activePoint: 1 };
+  [1, 2].forEach((n) => {
+    cartaPointEls[n].lat.value = "";
+    cartaPointEls[n].lon.value = "";
+    cartaPointEls[n].status.textContent = "Clique na carta para marcar";
+  });
+  armCartaPoint(1);
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/carta_pdf?arquivo=${carta.arquivo}`);
+    if (!resp.ok) throw new Error("download falhou");
+    const bytes = await resp.arrayBuffer();
+    const baseCanvas = await renderCartaPdf(bytes);
+
+    cartaState.baseCanvas = baseCanvas;
+    cartaCanvas.width = baseCanvas.width;
+    cartaCanvas.height = baseCanvas.height;
+    redrawCartaCanvas();
+    cartaModalStatus.textContent = "Marque os 2 pontos conhecidos na carta.";
+  } catch (e) {
+    cartaModalStatus.textContent = "Falha ao carregar o PDF da carta. Tente novamente.";
+  }
+}
+
+function closeCartaModal() {
+  cartaModal.classList.add("hidden");
+  cartaState = null;
+}
+
+cartaModalClose.addEventListener("click", closeCartaModal);
+cartaModal.addEventListener("click", (e) => {
+  if (e.target === cartaModal) closeCartaModal();
+});
+
+cartaCanvas.addEventListener("click", (ev) => {
+  if (!cartaState || !cartaState.baseCanvas) return;
+  const rect = cartaCanvas.getBoundingClientRect();
+  const x = ((ev.clientX - rect.left) * cartaCanvas.width) / rect.width;
+  const y = ((ev.clientY - rect.top) * cartaCanvas.height) / rect.height;
+
+  const n = cartaState.activePoint;
+  cartaState.points[n] = { x, y };
+  cartaPointEls[n].status.textContent = `Marcado em (${Math.round(x)}, ${Math.round(y)})`;
+  redrawCartaCanvas();
+
+  const outro = n === 1 ? 2 : 1;
+  if (!cartaState.points[outro]) armCartaPoint(outro);
+});
+
+[1, 2].forEach((n) => {
+  cartaPointBoxEls[n].addEventListener("click", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+    armCartaPoint(n);
+  });
+});
+
+document.querySelectorAll(".carta-point-quick button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const n = btn.dataset.point;
+    const fonte = btn.dataset.fonte === "origem" ? currentOrigem : lastDestino;
+    if (!fonte) return;
+    cartaPointEls[n].lat.value = fonte.lat.toFixed(6);
+    cartaPointEls[n].lon.value = fonte.lon.toFixed(6);
+  });
+});
+
+cartaModalReset.addEventListener("click", () => {
+  if (!cartaState) return;
+  cartaState.points = { 1: null, 2: null };
+  [1, 2].forEach((n) => (cartaPointEls[n].status.textContent = "Clique na carta para marcar"));
+  armCartaPoint(1);
+  redrawCartaCanvas();
+});
+
+// ====== Matemática da calibração: 2 pontos (pixel <-> lat/lon) definem uma
+// transformação de similaridade (rotação + escala uniforme + translação),
+// usando números complexos e uma aproximação planar local (equirretangular,
+// válida na escala de poucos km de uma carta de aproximação). ======
+const METROS_POR_GRAU_LAT = 111320;
+function metrosPorGrauLon(latGraus) {
+  return 111320 * Math.cos((latGraus * Math.PI) / 180);
+}
+function parseCoordInput(valor) {
+  const n = parseFloat(String(valor).trim().replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+function complexMul(a, b) {
+  return { re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re };
+}
+function complexSub(a, b) {
+  return { re: a.re - b.re, im: a.im - b.im };
+}
+function complexAdd(a, b) {
+  return { re: a.re + b.re, im: a.im + b.im };
+}
+function complexDiv(a, b) {
+  const denom = b.re * b.re + b.im * b.im;
+  return { re: (a.re * b.re + a.im * b.im) / denom, im: (a.im * b.re - a.re * b.im) / denom };
+}
+function latLonParaMetrosLocais(lat, lon, lat0, lon0) {
+  return {
+    re: (lon - lon0) * metrosPorGrauLon(lat0),
+    im: (lat0 - lat) * METROS_POR_GRAU_LAT, // "para o sul", cresce pra baixo como o eixo Y do canvas
+  };
+}
+function metrosLocaisParaLatLon(x, y, lat0, lon0) {
+  return { lat: lat0 - y / METROS_POR_GRAU_LAT, lon: lon0 + x / metrosPorGrauLon(lat0) };
+}
+
+function calibrarCarta(p1px, p2px, g1, g2, larguraPx, alturaPx) {
+  const lat0 = (g1.lat + g2.lat) / 2;
+  const lon0 = (g1.lon + g2.lon) / 2;
+
+  const zSrc1 = { re: p1px.x, im: p1px.y };
+  const zSrc2 = { re: p2px.x, im: p2px.y };
+  const zDst1 = latLonParaMetrosLocais(g1.lat, g1.lon, lat0, lon0);
+  const zDst2 = latLonParaMetrosLocais(g2.lat, g2.lon, lat0, lon0);
+
+  const a = complexDiv(complexSub(zDst2, zDst1), complexSub(zSrc2, zSrc1));
+  const b = complexSub(zDst1, complexMul(a, zSrc1));
+
+  const transformar = (x, y) => {
+    const z = complexAdd(complexMul(a, { re: x, im: y }), b);
+    return metrosLocaisParaLatLon(z.re, z.im, lat0, lon0);
+  };
+
+  return {
+    topLeft: transformar(0, 0),
+    topRight: transformar(larguraPx, 0),
+    bottomLeft: transformar(0, alturaPx),
+  };
+}
+
+cartaModalApply.addEventListener("click", () => {
+  if (!cartaState || !cartaState.baseCanvas) return;
+
+  const p1 = cartaState.points[1];
+  const p2 = cartaState.points[2];
+  if (!p1 || !p2) {
+    cartaModalStatus.textContent = "Marque os 2 pontos na carta antes de aplicar.";
+    return;
+  }
+
+  const g1 = { lat: parseCoordInput(cartaPointEls[1].lat.value), lon: parseCoordInput(cartaPointEls[1].lon.value) };
+  const g2 = { lat: parseCoordInput(cartaPointEls[2].lat.value), lon: parseCoordInput(cartaPointEls[2].lon.value) };
+  if (g1.lat == null || g1.lon == null || g2.lat == null || g2.lon == null) {
+    cartaModalStatus.textContent = "Informe latitude e longitude válidas dos 2 pontos.";
+    return;
+  }
+
+  const distanciaPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  if (distanciaPx < 25) {
+    cartaModalStatus.textContent = "Os 2 pontos estão perto demais na carta — escolha pontos mais afastados.";
+    return;
+  }
+  const { distanciaKm } = calcularRumoDistancia(g1.lat, g1.lon, g2.lat, g2.lon);
+  if (distanciaKm * 1000 < 30) {
+    cartaModalStatus.textContent = "Os 2 pontos estão perto demais geograficamente — escolha pontos mais afastados.";
+    return;
+  }
+
+  const { topLeft, topRight, bottomLeft } = calibrarCarta(
+    p1, p2, g1, g2, cartaState.baseCanvas.width, cartaState.baseCanvas.height
+  );
+
+  const overlayCanvas = document.createElement("canvas");
+  overlayCanvas.width = cartaState.baseCanvas.width;
+  overlayCanvas.height = cartaState.baseCanvas.height;
+  overlayCanvas.getContext("2d").drawImage(cartaState.baseCanvas, 0, 0);
+
+  const overlay = L.imageOverlay.rotated(
+    overlayCanvas,
+    [topLeft.lat, topLeft.lon],
+    [topRight.lat, topRight.lon],
+    [bottomLeft.lat, bottomLeft.lon],
+    { opacity: DEFAULT_CHART_OPACITY, attribution: "Carta calibrada manualmente" }
+  );
+
+  const key = `carta:${cartaState.icao}:${cartaState.carta.codigo || cartaState.carta.nome}`;
+  const label = `${cartaState.icao} · ${cartaState.carta.tipo} ${cartaState.carta.nome}`;
+  addActiveLayer(key, label, overlay);
+  map.fitBounds(overlay.getBounds(), { padding: [30, 30] });
+
+  closeCartaModal();
+});

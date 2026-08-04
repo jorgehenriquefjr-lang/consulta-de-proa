@@ -430,13 +430,13 @@ button:active { transform: translateY(0); }
 .layers-selected-list { list-style: none; margin: 0; padding: 0; }
 .layers-selected-list li {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px 6px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
 }
+.layers-selected-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .layers-selected-list button {
   padding: 3px 8px;
   font-size: 12px;
@@ -446,6 +446,16 @@ button:active { transform: translateY(0); }
   box-shadow: none;
 }
 .layers-selected-list button:hover { color: var(--danger); transform: none; box-shadow: none; }
+
+.layers-selected-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: default;
+}
+.layers-selected-opacity input[type="range"] { flex: 1; accent-color: var(--accent); }
 
 .leaflet-control-layers {
   background: var(--surface) !important;
@@ -506,4 +516,123 @@ tbody tr:last-child td { border-bottom: none; }
   .tool-panel-header { justify-content: flex-end; }
 
   .map-legend-badge { font-size: 11px; padding: 6px 10px; }
+}
+
+/* ====== Cartas de aproximação (lista + modal de calibração) ====== */
+.cartas-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.carta-chip {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--bg-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: none;
+}
+.carta-chip:hover { background: var(--accent-glow); color: var(--accent); transform: none; box-shadow: none; }
+
+.carta-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+.carta-modal-box {
+  background: var(--surface);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  width: min(920px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.45);
+}
+.carta-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.carta-modal-header h3 { margin: 0; font-size: 15px; }
+.carta-modal-close {
+  background: none;
+  border: none;
+  box-shadow: none;
+  font-size: 16px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.carta-modal-close:hover { color: var(--danger); transform: none; box-shadow: none; }
+.carta-modal-hint {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.carta-modal-body {
+  display: flex;
+  gap: 14px;
+  padding: 14px 16px;
+  overflow: auto;
+  flex: 1;
+}
+.carta-canvas-wrap { flex: 1; min-width: 0; overflow: auto; background: var(--bg-alt); border-radius: 8px; }
+.carta-canvas-wrap canvas { display: block; max-width: 100%; height: auto; cursor: crosshair; }
+
+.carta-modal-points { display: flex; flex-direction: column; gap: 12px; width: 220px; flex-shrink: 0; }
+.carta-point {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+.carta-point.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+.carta-point-status { margin: 0; font-size: 11px; color: var(--text-dim); }
+.carta-point label { font-size: 11px; color: var(--text-dim); display: flex; flex-direction: column; gap: 2px; }
+.carta-point input {
+  font-size: 12px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.carta-point-quick { display: flex; gap: 6px; }
+.carta-point-quick button {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 10px;
+  background: var(--bg-alt);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.carta-point-quick button:hover { color: var(--accent); transform: none; box-shadow: none; }
+
+.carta-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.carta-modal-actions .status { flex: 1; margin: 0; font-size: 12px; }
+#carta-modal-reset { background: var(--bg-alt); color: var(--text-dim); }
+#carta-modal-apply { background: var(--accent); color: #fff; }
+
+@media (max-width: 640px) {
+  .carta-modal-body { flex-direction: column; }
+  .carta-modal-points { width: 100%; flex-direction: row; flex-wrap: wrap; }
+  .carta-point { flex: 1; min-width: 140px; }
 }

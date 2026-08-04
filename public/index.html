@@ -112,6 +112,13 @@
                 </div>
               </div>
 
+              <div id="cartas-box" class="metar-taf-box hidden">
+                <div class="metar-taf-item">
+                  <span class="label">Cartas de Aproximação (IAC/VAC)</span>
+                  <div id="cartas-list" class="cartas-list"></div>
+                </div>
+              </div>
+
               <div id="avisos-box" class="metar-taf-box hidden">
                 <div class="metar-taf-item">
                   <span class="label">Aviso de Aeródromo</span>
@@ -181,10 +188,61 @@
         <i class="dot origin"></i> SBNV <i class="dot dest"></i> Destino <i class="dot fix"></i> Fixo
       </div>
     </div>
+
+    <div id="carta-modal" class="carta-modal hidden">
+      <div class="carta-modal-box">
+        <div class="carta-modal-header">
+          <h3 id="carta-modal-title">Calibrar carta</h3>
+          <button type="button" id="carta-modal-close" class="carta-modal-close">✕</button>
+        </div>
+        <p class="carta-modal-hint">
+          Clique em 2 pontos que você reconhece na carta (cabeceira de pista, fixo, VOR...) e
+          informe a coordenada real de cada um. Quanto mais afastados entre si, mais precisa
+          fica a calibração.
+        </p>
+        <div class="carta-modal-body">
+          <div class="carta-canvas-wrap">
+            <canvas id="carta-canvas"></canvas>
+          </div>
+          <div class="carta-modal-points">
+            <div class="carta-point" id="carta-point-1">
+              <strong>Ponto 1</strong>
+              <p id="carta-p1-status" class="carta-point-status">Clique na carta para marcar</p>
+              <label>Latitude <input type="text" id="carta-p1-lat" placeholder="-23.4356"></label>
+              <label>Longitude <input type="text" id="carta-p1-lon" placeholder="-46.4731"></label>
+              <div class="carta-point-quick">
+                <button type="button" data-point="1" data-fonte="origem">Usar origem</button>
+                <button type="button" data-point="1" data-fonte="destino">Usar destino</button>
+              </div>
+            </div>
+            <div class="carta-point" id="carta-point-2">
+              <strong>Ponto 2</strong>
+              <p id="carta-p2-status" class="carta-point-status">Clique na carta para marcar</p>
+              <label>Latitude <input type="text" id="carta-p2-lat" placeholder="-23.4400"></label>
+              <label>Longitude <input type="text" id="carta-p2-lon" placeholder="-46.4600"></label>
+              <div class="carta-point-quick">
+                <button type="button" data-point="2" data-fonte="origem">Usar origem</button>
+                <button type="button" data-point="2" data-fonte="destino">Usar destino</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="carta-modal-actions">
+          <span id="carta-modal-status" class="status"></span>
+          <button type="button" id="carta-modal-reset">Refazer pontos</button>
+          <button type="button" id="carta-modal-apply">Aplicar no mapa</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="vendor/leaflet-imageoverlay-rotated.js"></script>
+  <!-- pdf.js: renderiza a carta (PDF) num canvas pra calibração manual sobre o satélite -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
+          integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e"
+          crossorigin="anonymous"></script>
   <script src="app.js"></script>
 </body>
 </html>

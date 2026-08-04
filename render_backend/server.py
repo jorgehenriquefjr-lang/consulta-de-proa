@@ -11,7 +11,7 @@ import firebase_admin
 import requests
 from dotenv import load_dotenv
 from firebase_admin import credentials, firestore
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 
 # Em produção (Render) as variáveis vêm do painel; localmente, do .env ao lado
@@ -145,6 +145,28 @@ _tsc_cache = {}  # "tsc" -> (expira_em, dado)
 TSC_CACHE_TTL = 10 * 60  # células de tempo severo convectivo mudam com frequência
 _status_aerodromos_cache = {}  # pais -> (expira_em, dado)
 STATUS_AERODROMOS_CACHE_TTL = 10 * 60  # acompanha a frequência de atualização do METAR
+_cartas_cache = {}  # icao -> (expira_em, lista de cartas)
+CARTAS_CACHE_TTL = 24 * 3600  # cartas (IAC/VAC) mudam só por ciclo AIRAC (28 dias)
+
+# ====== Cartas de aproximação (IAC/VAC) por aeródromo ======
+# Não existe endpoint documentado na API oficial pra isso (a API só cobre
+# rotaer/met); replica o mesmo formulário de busca que a própria página
+# pública usa em aisweb.decea.mil.br/?i=cartas. Front-end frágil: se o DECEA
+# mudar o HTML/nomes de campo, isso para de funcionar (por isso cai em lista
+# vazia, nunca quebra a busca do aeródromo).
+CARTAS_SEARCH_URL = "https://aisweb.decea.mil.br/?i=cartas"
+CARTAS_DOWNLOAD_BASE = "https://aisweb.decea.mil.br/download/"
+# Chave fixa que a própria página pública do AISWEB usa nos links de download
+# pra qualquer visitante anônimo (não é uma credencial nossa, é reaproveitada
+# do HTML público — todo mundo que abre a página de cartas recebe a mesma).
+CARTAS_PUBLIC_APIKEY = "1587263166"
+CARTAS_TIPOS = ("IAC", "VAC")  # aproximação por instrumentos e visual
+CARTAS_TOKEN_RE = re.compile(r'name="busca" value="([^"]+)"')
+CARTAS_ROW_RE = re.compile(r"<tr>(?:(?!</tr>).)*?</tr>", re.DOTALL)
+CARTAS_TD_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL)
+CARTAS_UUID_RE = re.compile(r'name="zip" value="([0-9a-fA-F-]+)"')
+CARTAS_CODE_RE = re.compile(r"<a[^>]*>([^<]+)</a>")
+CARTAS_TAG_RE = re.compile(r"<[^>]+>")
 
 # Cores de categoria de voo retornadas por /aerodromos/status (VFR/marginal/IFR).
 STATUS_COR_HEX = {
@@ -353,6 +375,92 @@ def fetch_metar_taf(icao: str):
     with _cache_lock:
         _metar_taf_cache[icao] = (now + METAR_TAF_CACHE_TTL, resultado)
     return resultado
+
+
+def _parse_cartas_rows(html: str, icao: str) -> list[dict]:
+    cartas = []
+    for row_html in CARTAS_ROW_RE.findall(html):
+        uuid_m = CARTAS_UUID_RE.search(row_html)
+        if not uuid_m:
+            continue  # linha de cabeçalho da tabela, sem checkbox de download
+
+        tds = CARTAS_TD_RE.findall(row_html)
+        if len(tds) < 7:
+            continue
+
+        localidade = CARTAS_TAG_RE.sub("", tds[1]).strip()
+        if localidade.upper() != icao:
+            continue
+
+        tipo = CARTAS_TAG_RE.sub("", tds[2]).strip()
+        code_m = CARTAS_CODE_RE.search(tds[3])
+        codigo = code_m.group(1).strip() if code_m else ""
+        nome = CARTAS_TAG_RE.sub(" ", tds[3])
+        nome = re.sub(r"\s+", " ", nome).strip()
+        if codigo and nome.endswith(codigo):
+            nome = nome[: -len(codigo)].strip()
+
+        cartas.append({
+            "tipo": tipo,
+            "nome": nome,
+            "codigo": codigo,
+            "amdt": CARTAS_TAG_RE.sub("", tds[4]).strip(),
+            "data_efetivacao": CARTAS_TAG_RE.sub("", tds[5]).strip(),
+            "uso": CARTAS_TAG_RE.sub("", tds[6]).strip(),
+            "arquivo": uuid_m.group(1),
+        })
+    return cartas
+
+
+def _fetch_cartas_aisweb(icao: str) -> list[dict]:
+    """Busca as cartas IAC/VAC de um aeródromo replicando o formulário de
+    busca da página pública do AISWEB (não existe isso na API oficial)."""
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0"})
+
+    resp = session.get(CARTAS_SEARCH_URL, timeout=10)
+    resp.raise_for_status()
+    token_m = CARTAS_TOKEN_RE.search(resp.text)
+    if not token_m:
+        return []
+    token = token_m.group(1)
+
+    cartas = []
+    for tipo in CARTAS_TIPOS:
+        post = session.post(
+            CARTAS_SEARCH_URL,
+            data={
+                "icaocode": icao,
+                "tipo": tipo,
+                "carta": "",
+                "pe": "0",
+                "amdt": "0",
+                "uso": "all",
+                "busca": token,
+            },
+            headers={"Referer": CARTAS_SEARCH_URL},
+            timeout=10,
+        )
+        post.raise_for_status()
+        cartas.extend(_parse_cartas_rows(post.text, icao))
+    return cartas
+
+
+def fetch_cartas(icao: str) -> list[dict]:
+    now = time.time()
+    with _cache_lock:
+        cached = _cartas_cache.get(icao)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    try:
+        cartas = _fetch_cartas_aisweb(icao)
+    except requests.RequestException:
+        return []  # não cacheia falha: tenta de novo na próxima consulta
+
+    with _cache_lock:
+        _cartas_cache[icao] = (now + CARTAS_CACHE_TTL, cartas)
+    return cartas
 
 
 def lookup_fixes(idents: list[str]) -> dict:
@@ -751,6 +859,41 @@ def metar_taf():
         return jsonify({"error": "Falha ao consultar o AISWEB. Tente novamente."}), 502
 
     return jsonify({"icao": icao, "metar": dados["metar"], "taf": dados["taf"]})
+
+
+@app.route("/api/cartas")
+def cartas():
+    icao = (request.args.get("icao") or "").strip().upper()
+    if not ICAO_RE.match(icao):
+        return jsonify({"error": "IND LOC inválido. Use de 3 a 6 letras/números (ex.: SBGR)."}), 400
+
+    return jsonify({"icao": icao, "cartas": fetch_cartas(icao)})
+
+
+@app.route("/api/carta_pdf")
+def carta_pdf():
+    """Proxy do PDF da carta: o front-end (pdf.js) precisa ler os bytes pra
+    renderizar e calibrar, e o AISWEB não manda cabeçalho CORS pra permitir
+    fetch() direto de outro domínio — por isso passa pelo nosso backend."""
+    arquivo = (request.args.get("arquivo") or "").strip()
+    if not re.match(r"^[0-9a-fA-F-]{20,50}$", arquivo):
+        return jsonify({"error": "Parâmetro 'arquivo' inválido."}), 400
+
+    url = f"{CARTAS_DOWNLOAD_BASE}?arquivo={arquivo}&apikey={CARTAS_PUBLIC_APIKEY}"
+    try:
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return jsonify({"error": "Falha ao baixar a carta do AISWEB."}), 502
+
+    if "pdf" not in resp.headers.get("Content-Type", "").lower():
+        return jsonify({"error": "Arquivo retornado pelo AISWEB não é um PDF."}), 502
+
+    return Response(
+        resp.content,
+        mimetype="application/pdf",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.route("/api/avisos")
