@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import firebase_admin
@@ -13,7 +14,9 @@ from firebase_admin import credentials, firestore
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-load_dotenv()
+# Em produção (Render) as variáveis vêm do painel; localmente, do .env ao lado
+# deste arquivo (nunca commitado — está no .gitignore).
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 app = Flask(__name__)
 CORS(app)
@@ -33,6 +36,17 @@ try:
     db = firestore.client()
 except Exception:
     db = None
+
+# ====== API oficial do AISWEB (DECEA) ======
+# Muito mais rápida e confiável que o scraping de HTML: usada como primeira
+# tentativa em fetch_aerodromo/fetch_metar_taf, com o scraping como reserva
+# para quando a chave não estiver configurada ou a API falhar/ficar fora do ar.
+# Configure AISWEB_API_KEY/AISWEB_API_PASS como variáveis de ambiente (nunca
+# commitar esses valores no código, já que o repositório é público).
+AISWEB_API_BASE = "https://aisweb.decea.mil.br/api/"
+AISWEB_API_KEY = os.environ.get("AISWEB_API_KEY", "")
+AISWEB_API_PASS = os.environ.get("AISWEB_API_PASS", "")
+AISWEB_API_TIMEOUT_S = 6
 
 # ====== Origem padrão: SBNV (Goiânia/GO) — pode ser trocada por parâmetro ======
 ORIGEM = {
@@ -178,6 +192,77 @@ def parse_fpl_coord(coord: str):
     return lat, lon
 
 
+def _fetch_aerodromo_aisweb_api(icao: str):
+    """Consulta area=rotaer da API oficial do AISWEB. Retorna None se a chave
+    não estiver configurada, o aeródromo não existir ou a resposta vier
+    incompleta (o chamador cai de volta pro scraping de HTML nesses casos)."""
+    if not (AISWEB_API_KEY and AISWEB_API_PASS):
+        return None
+
+    resp = requests.get(
+        AISWEB_API_BASE,
+        params={
+            "apiKey": AISWEB_API_KEY,
+            "apiPass": AISWEB_API_PASS,
+            "area": "rotaer",
+            "icaoCode": icao,
+        },
+        timeout=AISWEB_API_TIMEOUT_S,
+    )
+    resp.raise_for_status()
+    root = ET.fromstring(resp.content)
+
+    if root.find("error") is not None:
+        return None
+
+    name_el, city_el, uf_el = root.find("name"), root.find("city"), root.find("uf")
+    lat_el, lng_el = root.find("lat"), root.find("lng")
+    if name_el is None or lat_el is None or lng_el is None:
+        return None
+    if not (name_el.text and lat_el.text and lng_el.text):
+        return None
+
+    return {
+        "icao": icao,
+        "name": name_el.text.strip(),
+        "city": city_el.text.strip() if city_el is not None and city_el.text else "",
+        "state": uf_el.text.strip() if uf_el is not None and uf_el.text else "",
+        "lat": float(lat_el.text),
+        "lon": float(lng_el.text),
+        "fonte": "aisweb_api",
+    }
+
+
+def _fetch_metar_taf_api(icao: str):
+    """Consulta area=met da API oficial do AISWEB. Retorna None se a chave não
+    estiver configurada, para o chamador cair de volta pro scraping de HTML."""
+    if not (AISWEB_API_KEY and AISWEB_API_PASS):
+        return None
+
+    resp = requests.get(
+        AISWEB_API_BASE,
+        params={
+            "apiKey": AISWEB_API_KEY,
+            "apiPass": AISWEB_API_PASS,
+            "area": "met",
+            "icaoCode": icao,
+        },
+        timeout=AISWEB_API_TIMEOUT_S,
+    )
+    resp.raise_for_status()
+    root = ET.fromstring(resp.content)
+
+    met_el = root.find("met")
+    if met_el is None:
+        return None
+
+    metar_el, taf_el = met_el.find("metar"), met_el.find("taf")
+    return {
+        "metar": metar_el.text.strip() if metar_el is not None and metar_el.text else None,
+        "taf": taf_el.text.strip() if taf_el is not None and taf_el.text else None,
+    }
+
+
 def _fetch_aerodromo_aisweb(icao: str):
     url = f"https://aisweb.decea.mil.br/?i=aerodromos&codigo={icao}"
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
@@ -207,9 +292,9 @@ def _fetch_aerodromo_aisweb(icao: str):
 
 
 def fetch_aerodromo(icao: str):
-    # AISWEB primeiro: dado mais fresco e com acentuação correta. Com o
-    # keep-alive (GitHub Actions) mantendo o backend acordado, isso costuma
-    # ser rápido (~1-2s) e fica em cache por 24h depois da 1ª consulta.
+    # API oficial primeiro (mais rápida e sem precisar parsear HTML); scraping
+    # da página como reserva se a chave não estiver configurada ou a API
+    # falhar. Fica em cache por 24h depois da 1ª consulta bem-sucedida.
     now = time.time()
     with _cache_lock:
         cached = _aerodromo_cache.get(icao)
@@ -217,11 +302,17 @@ def fetch_aerodromo(icao: str):
             return cached[1]
 
     try:
-        aerodromo = _fetch_aerodromo_aisweb(icao)
-    except requests.RequestException:
+        aerodromo = _fetch_aerodromo_aisweb_api(icao)
+    except (requests.RequestException, ET.ParseError, ValueError):
         aerodromo = None
 
-    # Só recorre à base local do ROTAER se o AISWEB falhar, demorar demais
+    if aerodromo is None:
+        try:
+            aerodromo = _fetch_aerodromo_aisweb(icao)
+        except requests.RequestException:
+            aerodromo = None
+
+    # Só recorre à base local do ROTAER se tudo acima falhar, demorar demais
     # ou não conhecer o indicativo (ex.: durante um cold start do Render).
     if aerodromo is None:
         backup = ROTAER_BACKUP.get(icao)
@@ -241,17 +332,23 @@ def fetch_metar_taf(icao: str):
         if cached and cached[0] > now:
             return cached[1]
 
-    url = f"https://aisweb.decea.mil.br/?i=aerodromos&codigo={icao}"
-    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-    resp.raise_for_status()
-    html = resp.text
+    try:
+        resultado = _fetch_metar_taf_api(icao)
+    except (requests.RequestException, ET.ParseError):
+        resultado = None
 
-    metar_m = METAR_HTML_RE.search(html)
-    taf_m = TAF_HTML_RE.search(html)
-    resultado = {
-        "metar": metar_m.group(1).strip() or None if metar_m else None,
-        "taf": taf_m.group(1).strip() or None if taf_m else None,
-    }
+    if resultado is None:
+        url = f"https://aisweb.decea.mil.br/?i=aerodromos&codigo={icao}"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        resp.raise_for_status()
+        html = resp.text
+
+        metar_m = METAR_HTML_RE.search(html)
+        taf_m = TAF_HTML_RE.search(html)
+        resultado = {
+            "metar": metar_m.group(1).strip() or None if metar_m else None,
+            "taf": taf_m.group(1).strip() or None if taf_m else None,
+        }
 
     with _cache_lock:
         _metar_taf_cache[icao] = (now + METAR_TAF_CACHE_TTL, resultado)
