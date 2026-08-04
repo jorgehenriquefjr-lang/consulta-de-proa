@@ -626,36 +626,6 @@ def health():
     return jsonify({"status": "ok", "service": "consulta-de-proas-backend"})
 
 
-@app.route("/api/_debug_aisweb")
-def debug_aisweb():
-    """Diagnóstico temporário: confirma se as env vars chegaram no processo e
-    o que a chamada real à API retorna, sem cair no fallback silencioso de
-    _fetch_aerodromo_aisweb_api. Não expõe os valores das chaves. REMOVER
-    depois de descobrir por que a produção ainda cai no scraping de HTML."""
-    info = {
-        "AISWEB_API_KEY_set": bool(AISWEB_API_KEY),
-        "AISWEB_API_KEY_len": len(AISWEB_API_KEY),
-        "AISWEB_API_PASS_set": bool(AISWEB_API_PASS),
-        "AISWEB_API_PASS_len": len(AISWEB_API_PASS),
-    }
-    try:
-        resp = requests.get(
-            AISWEB_API_BASE,
-            params={
-                "apiKey": AISWEB_API_KEY,
-                "apiPass": AISWEB_API_PASS,
-                "area": "rotaer",
-                "icaoCode": "SBGR",
-            },
-            timeout=AISWEB_API_TIMEOUT_S,
-        )
-        info["http_status"] = resp.status_code
-        info["raw_response_head"] = resp.text[:300]
-    except Exception as exc:
-        info["exception"] = f"{type(exc).__name__}: {exc}"
-    return jsonify(info)
-
-
 def resolve_ponto(icao_raw: str, coord_raw: str = ""):
     """Resolve um ponto (origem ou destino) a partir de um IND LOC ou, para
     ZZZZ, de uma coordenada do Campo 18 do FPL. Retorna (ponto, erro, status);
