@@ -584,41 +584,8 @@ tbody tr:last-child td { border-bottom: none; }
   overflow: auto;
   flex: 1;
 }
-.carta-canvas-wrap { flex: 1; min-width: 0; overflow: auto; background: var(--bg-alt); border-radius: 8px; }
+.carta-canvas-wrap { flex: 1; min-width: 0; overflow: auto; background: var(--bg-alt); border-radius: 8px; max-height: 65vh; }
 .carta-canvas-wrap canvas { display: block; max-width: 100%; height: auto; cursor: crosshair; }
-
-.carta-modal-points { display: flex; flex-direction: column; gap: 12px; width: 220px; flex-shrink: 0; }
-.carta-point {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  cursor: pointer;
-}
-.carta-point.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
-.carta-point-status { margin: 0; font-size: 11px; color: var(--text-dim); }
-.carta-point label { font-size: 11px; color: var(--text-dim); display: flex; flex-direction: column; gap: 2px; }
-.carta-point input {
-  font-size: 12px;
-  padding: 5px 7px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text);
-}
-.carta-point-quick { display: flex; gap: 6px; }
-.carta-point-quick button {
-  flex: 1;
-  padding: 4px 6px;
-  font-size: 10px;
-  background: var(--bg-alt);
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  box-shadow: none;
-}
-.carta-point-quick button:hover { color: var(--accent); transform: none; box-shadow: none; }
 
 .carta-modal-actions {
   display: flex;
@@ -628,11 +595,43 @@ tbody tr:last-child td { border-bottom: none; }
   border-top: 1px solid var(--border);
 }
 .carta-modal-actions .status { flex: 1; margin: 0; font-size: 12px; }
-#carta-modal-reset { background: var(--bg-alt); color: var(--text-dim); }
-#carta-modal-apply { background: var(--accent); color: #fff; }
+
+/* Painel flutuante de ajuste fino: fica sobre o mapa (não bloqueia como o
+   modal) pra dar pra comparar rotação/tamanho da carta com o satélite embaixo
+   em tempo real enquanto o usuário mexe nos sliders. */
+.carta-ajuste-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 32px -12px rgba(15, 23, 42, 0.35);
+  padding: 12px 14px;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.carta-ajuste-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.carta-ajuste-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.carta-ajuste-remover {
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--bg-alt);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  flex-shrink: 0;
+}
+.carta-ajuste-remover:hover { color: var(--danger); transform: none; box-shadow: none; }
+.carta-ajuste-row { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.carta-ajuste-row span { display: flex; justify-content: space-between; }
+.carta-ajuste-row input[type="range"] { accent-color: var(--accent); }
+#carta-ajuste-concluir { background: var(--accent); color: #fff; }
 
 @media (max-width: 640px) {
   .carta-modal-body { flex-direction: column; }
-  .carta-modal-points { width: 100%; flex-direction: row; flex-wrap: wrap; }
-  .carta-point { flex: 1; min-width: 140px; }
+  .carta-ajuste-panel { left: 16px; right: 16px; width: auto; bottom: 12px; }
 }

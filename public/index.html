@@ -192,47 +192,39 @@
     <div id="carta-modal" class="carta-modal hidden">
       <div class="carta-modal-box">
         <div class="carta-modal-header">
-          <h3 id="carta-modal-title">Calibrar carta</h3>
+          <h3 id="carta-modal-title">Posicionar carta</h3>
           <button type="button" id="carta-modal-close" class="carta-modal-close">✕</button>
         </div>
         <p class="carta-modal-hint">
-          Clique em 2 pontos que você reconhece na carta (cabeceira de pista, fixo, VOR...) e
-          informe a coordenada real de cada um. Quanto mais afastados entre si, mais precisa
-          fica a calibração.
+          Clique no símbolo do aeródromo na carta (o quadrado/círculo do ARP). O sistema já
+          ancora esse ponto exatamente nas coordenadas reais do aeródromo pesquisado — depois é
+          só ajustar a rotação e o tamanho pra alinhar com a pista real no satélite.
         </p>
         <div class="carta-modal-body">
           <div class="carta-canvas-wrap">
             <canvas id="carta-canvas"></canvas>
           </div>
-          <div class="carta-modal-points">
-            <div class="carta-point" id="carta-point-1">
-              <strong>Ponto 1</strong>
-              <p id="carta-p1-status" class="carta-point-status">Clique na carta para marcar</p>
-              <label>Latitude <input type="text" id="carta-p1-lat" placeholder="-23.4356"></label>
-              <label>Longitude <input type="text" id="carta-p1-lon" placeholder="-46.4731"></label>
-              <div class="carta-point-quick">
-                <button type="button" data-point="1" data-fonte="origem">Usar origem</button>
-                <button type="button" data-point="1" data-fonte="destino">Usar destino</button>
-              </div>
-            </div>
-            <div class="carta-point" id="carta-point-2">
-              <strong>Ponto 2</strong>
-              <p id="carta-p2-status" class="carta-point-status">Clique na carta para marcar</p>
-              <label>Latitude <input type="text" id="carta-p2-lat" placeholder="-23.4400"></label>
-              <label>Longitude <input type="text" id="carta-p2-lon" placeholder="-46.4600"></label>
-              <div class="carta-point-quick">
-                <button type="button" data-point="2" data-fonte="origem">Usar origem</button>
-                <button type="button" data-point="2" data-fonte="destino">Usar destino</button>
-              </div>
-            </div>
-          </div>
         </div>
         <div class="carta-modal-actions">
           <span id="carta-modal-status" class="status"></span>
-          <button type="button" id="carta-modal-reset">Refazer pontos</button>
-          <button type="button" id="carta-modal-apply">Aplicar no mapa</button>
         </div>
       </div>
+    </div>
+
+    <div id="carta-ajuste-panel" class="carta-ajuste-panel hidden">
+      <div class="carta-ajuste-header">
+        <strong id="carta-ajuste-title">Carta</strong>
+        <button type="button" id="carta-ajuste-remover" class="carta-ajuste-remover">Remover</button>
+      </div>
+      <label class="carta-ajuste-row">
+        <span>Rotação <b id="carta-rot-valor">0°</b></span>
+        <input type="range" id="carta-rot-slider" min="0" max="359" step="1" value="0">
+      </label>
+      <label class="carta-ajuste-row">
+        <span>Tamanho <b id="carta-escala-valor">30 NM</b></span>
+        <input type="range" id="carta-escala-slider" min="5" max="100" step="1" value="30">
+      </label>
+      <button type="button" id="carta-ajuste-concluir">Concluir</button>
     </div>
   </div>
 
