@@ -61,7 +61,7 @@
     if (appCarregado) return;
     appCarregado = true;
     const s = document.createElement("script");
-    s.src = "app.js";
+    s.src = "app.js?v=20261123-notam";
     document.body.appendChild(s);
   }
 
