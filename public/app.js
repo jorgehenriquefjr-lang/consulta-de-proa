@@ -1104,9 +1104,39 @@ const iconeNotam = (qtd, aoLado) =>
     iconAnchor: aoLado ? [-10, 8] : [13, 13],
   });
 
+// Vermelho: restrita/proibida · laranja: perigosa · âmbar: demais
+function corNotam(texto) {
+  const t = (texto || "").toUpperCase();
+  if (/RESTRITA|PROIBIDA/.test(t)) return "#dc2626";
+  if (/PERIGOSA/.test(t)) return "#ea580c";
+  return "#d97706";
+}
+
+function descreverLocalNotam(geo) {
+  const g = geo || {};
+  if (g.circulos?.length) {
+    return g.circulos
+      .map((c) => `círculo · raio ${c.raio_nm < 1 ? `${Math.round(c.raio_nm * 1852)} m` : `${c.raio_nm.toFixed(1)} NM (${(c.raio_nm * NM_PARA_KM).toFixed(1)} km)`}`)
+      .join(" + ");
+  }
+  if (g.poligonos?.length) return g.poligonos.map((p) => `área de ${p.length} vértices`).join(" + ");
+  if (g.pontos?.length) return "coord. no texto";
+  if (g.centro) return `linha Q${g.raio_nm ? ` · raio ${g.raio_nm} NM` : ""}`;
+  return "sem coordenada — no aeródromo";
+}
+
 function plotarNotams(itens, aerodromo) {
   notamLayer.clearLayers();
   notamMarkers.clear();
+  const formas = [];
+  const adicionarForma = (camada, idx, area) => {
+    camada
+      .bindTooltip(notamHtml(itens[idx]), { sticky: true, className: "notam-tooltip", direction: "auto" })
+      .addTo(notamLayer);
+    camada._estiloNotam = { weight: camada.options.weight, fillOpacity: camada.options.fillOpacity };
+    notamMarkers.set(idx, [...(notamMarkers.get(idx) || []), camada]);
+    formas.push({ camada, area });
+  };
   // Agrupa NOTAM no mesmo ponto: um pino só, tooltip com todos os textos
   const grupos = new Map();
   const adicionar = (lat, lon, idx, origemGeo) => {
@@ -1118,11 +1148,31 @@ function plotarNotams(itens, aerodromo) {
   itens.forEach((n, i) => {
     const g = n.geo || {};
     let plotado = false;
+    const cor = corNotam(n.texto);
+    (g.circulos || []).forEach((c) => {
+      adicionarForma(
+        L.circle([c.lat, c.lon], { radius: c.raio_nm * 1852, color: cor, weight: 2, fillColor: cor, fillOpacity: 0.16 }),
+        i,
+        c.raio_nm * c.raio_nm * Math.PI
+      );
+      adicionar(c.lat, c.lon, i, "círculo");
+      plotado = true;
+    });
+    (g.poligonos || []).forEach((vertices) => {
+      const poligono = L.polygon(vertices.map((v) => [v.lat, v.lon]), { color: cor, weight: 2, fillColor: cor, fillOpacity: 0.16 });
+      const b = poligono.getBounds();
+      adicionarForma(poligono, i, (b.getNorth() - b.getSouth()) * (b.getEast() - b.getWest()) * 3600);
+      const lat = vertices.reduce((t, v) => t + v.lat, 0) / vertices.length;
+      const lon = vertices.reduce((t, v) => t + v.lon, 0) / vertices.length;
+      adicionar(lat, lon, i, "polígono");
+      plotado = true;
+    });
+    const temForma = plotado;
     (g.pontos || []).forEach((p) => {
       adicionar(p.lat, p.lon, i, "texto");
       plotado = true;
     });
-    if (g.centro) {
+    if (g.centro && !temForma) {
       // Raio da linha Q: só desenha quando é local (≤ 50 NM); 999 = FIR inteira
       if (g.raio_nm && g.raio_nm <= 50) {
         const c = L.circle([g.centro.lat, g.centro.lon], {
@@ -1152,6 +1202,21 @@ function plotarNotams(itens, aerodromo) {
       .addTo(notamLayer);
     idxs.forEach((i) => notamMarkers.set(i, [...(notamMarkers.get(i) || []), m]));
   });
+
+  // Áreas maiores ficam atrás, para as menores continuarem acessíveis ao mouse
+  formas.sort((x, y) => x.area - y.area).forEach((f) => f.camada.bringToBack());
+}
+
+function destacarNotam(camadas, ativo) {
+  (camadas || []).forEach((l) => {
+    if (l.setStyle && l._estiloNotam) {
+      l.setStyle(ativo ? { weight: 4, fillOpacity: 0.34 } : l._estiloNotam);
+    } else if (ativo) {
+      l.openTooltip?.();
+    } else {
+      l.closeTooltip?.();
+    }
+  });
 }
 
 async function loadNotam(icao) {
@@ -1174,23 +1239,24 @@ async function loadNotam(icao) {
     }
     box.open = true;
     plotarNotams(itens, ultimo.destino);
-    lista.innerHTML = `<p class="hint">Plotados no mapa (pino <b>N</b>) — passe o mouse para ler o texto.</p>`;
+    lista.innerHTML = `<p class="hint">Plotados no mapa com a área de cada NOTAM — passe o mouse para ler o texto.</p>`;
     itens.forEach((n, i) => {
       const div = document.createElement("div");
       div.className = "notam-item";
-      const onde = n.geo?.pontos?.length ? "coord. no texto" : n.geo?.centro ? `linha Q${n.geo.raio_nm ? ` · raio ${n.geo.raio_nm} NM` : ""}` : "no aeródromo";
+      const onde = descreverLocalNotam(n.geo);
       div.innerHTML = `<header><b>${escapeHtml(n.numero)}</b><span>${escapeHtml(n.inicio)} → ${escapeHtml(n.fim)}</span></header>
         ${n.periodo ? `<small class="hint">${escapeHtml(n.periodo)}</small>` : ""}
         <p>${escapeHtml(n.texto)}</p><small class="hint">📍 ${escapeHtml(onde)}</small>`;
       // Passar o mouse na lista destaca no mapa; clicar centraliza e abre
-      div.addEventListener("mouseenter", () => (notamMarkers.get(i) || []).forEach((l) => l.openTooltip?.()));
-      div.addEventListener("mouseleave", () => (notamMarkers.get(i) || []).forEach((l) => l.closeTooltip?.()));
+      div.addEventListener("mouseenter", () => destacarNotam(notamMarkers.get(i), true));
+      div.addEventListener("mouseleave", () => destacarNotam(notamMarkers.get(i), false));
       div.addEventListener("click", () => {
-        const l = (notamMarkers.get(i) || []).find((x) => x.getLatLng);
-        if (l) {
-          map.setView(l.getLatLng(), Math.max(map.getZoom(), 11));
-          l.openPopup();
-        }
+        const camadas = notamMarkers.get(i) || [];
+        const forma = camadas.find((x) => x.getBounds);
+        const pino = camadas.find((x) => x instanceof L.Marker);
+        if (forma) enquadrar(forma.getBounds());
+        else if (pino) map.setView(pino.getLatLng(), Math.max(map.getZoom(), 11));
+        pino?.openPopup();
       });
       lista.appendChild(div);
     });

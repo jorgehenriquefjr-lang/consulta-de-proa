@@ -1163,14 +1163,56 @@ NOTAM_CACHE_TTL = 15 * 60
 
 # Linha Q do NOTAM termina com centro + raio: ".../1638S04921W005" (raio em NM)
 NOTAM_Q_RE = re.compile(r"(\d{4}[NS]\d{5}[EW])(\d{3})\b")
-# Coordenadas citadas no texto (campo E), com ou sem segundos, com ou sem espaço
-NOTAM_COORD_RE = re.compile(r"\b(\d{4}(?:\d{2})?(?:[.,]\d+)?[NS])\s?(\d{5}(?:\d{2})?(?:[.,]\d+)?[EW])\b")
+# Coordenadas do campo E: com ou sem segundos/decimais, com ou sem "/" entre
+# latitude e longitude (ex.: 163655.22S/0491336.86W, 162715S0490601W, 1638S04921W)
+NOTAM_COORD_RE = re.compile(
+    r"(?<![\d.,])(\d{2})(\d{2})(\d{2})?(?:[.,](\d+))?\s?([NS])\s*/?\s*"
+    r"(\d{3})(\d{2})(\d{2})?(?:[.,](\d+))?\s?([EW])(?![A-Z])"
+)
+NOTAM_RAIO_RE = re.compile(r"\b(?:RAIO|RADIUS)(?:\s+DE)?\s+(\d+(?:[.,]\d+)?)\s*(NM|KM|M)\b")
+NOTAM_SEPARADOR_RE = re.compile(r"\s*-\s*")
+NOTAM_RAIO_MAX_NM = 300
+
+
+def _notam_grau(graus, minutos, segundos, fracao, hemisferio, limite):
+    g, m = int(graus), int(minutos)
+    if segundos is None:
+        m_total = m + (float(f"0.{fracao}") if fracao else 0)
+        s_total = 0.0
+    else:
+        m_total = m
+        s_total = int(segundos) + (float(f"0.{fracao}") if fracao else 0)
+    if m >= 60 or s_total >= 60:
+        return None
+    valor = g + m_total / 60 + s_total / 3600
+    if valor > limite:
+        return None
+    return -valor if hemisferio in ("S", "W") else valor
+
+
+def _notam_coord(match):
+    p = match.groups()
+    lat = _notam_grau(p[0], p[1], p[2], p[3], p[4], 90)
+    lon = _notam_grau(p[5], p[6], p[7], p[8], p[9], 180)
+    if lat is None or lon is None:
+        return None
+    return {"lat": round(lat, 6), "lon": round(lon, 6), "ref": re.sub(r"\s+", "", match.group(0))}
+
+
+def _notam_raio_nm(trecho: str):
+    m = NOTAM_RAIO_RE.search(trecho)
+    if not m:
+        return None
+    valor = float(m.group(1).replace(",", "."))
+    fator = {"NM": 1, "KM": 1 / 1.852, "M": 1 / 1852}[m.group(2)]
+    raio = valor * fator
+    return round(raio, 3) if 0 < raio <= NOTAM_RAIO_MAX_NM else None
 
 
 def extrair_geo_notam(campos: dict, texto: str):
-    """Extrai a localização plotável de um NOTAM: centro/raio da linha Q (em
-    qualquer campo que a contenha) e as coordenadas citadas no texto."""
-    geo = {"centro": None, "raio_nm": None, "pontos": []}
+    """Extrai a geometria plotável de um NOTAM: círculos (centro + raio),
+    polígonos (3+ coordenadas ligadas por "-"), pontos soltos e a linha Q."""
+    geo = {"centro": None, "raio_nm": None, "pontos": [], "circulos": [], "poligonos": []}
     for valor in campos.values():
         m = NOTAM_Q_RE.search(valor or "")
         if m and "/" in (valor or ""):
@@ -1179,13 +1221,35 @@ def extrair_geo_notam(campos: dict, texto: str):
                 geo["centro"] = {"lat": ll[0], "lon": ll[1]}
                 geo["raio_nm"] = int(m.group(2))
                 break
-    vistos = set()
-    for lat_s, lon_s in NOTAM_COORD_RE.findall(texto or ""):
-        token = re.sub(r"[.,]\d+", "", lat_s) + re.sub(r"[.,]\d+", "", lon_s)
-        ll = parse_fpl_coord(token)
-        if ll and token not in vistos:
-            vistos.add(token)
-            geo["pontos"].append({"lat": ll[0], "lon": ll[1], "ref": token})
+
+    texto = (texto or "").upper()
+    achados = [(m, _notam_coord(m)) for m in NOTAM_COORD_RE.finditer(texto)]
+    achados = [(m, c) for m, c in achados if c]
+
+    # Agrupa coordenadas consecutivas ligadas por "-"
+    sequencias = []
+    for m, c in achados:
+        if sequencias and NOTAM_SEPARADOR_RE.fullmatch(texto[sequencias[-1][-1][0].end():m.start()]):
+            sequencias[-1].append((m, c))
+        else:
+            sequencias.append([(m, c)])
+
+    for i, seq in enumerate(sequencias):
+        coords = [c for _, c in seq]
+        if len(coords) >= 3:
+            if (coords[0]["lat"], coords[0]["lon"]) == (coords[-1]["lat"], coords[-1]["lon"]):
+                coords = coords[:-1]
+            if len(coords) >= 3:
+                geo["poligonos"].append([{"lat": c["lat"], "lon": c["lon"]} for c in coords])
+                continue
+        fim_trecho = sequencias[i + 1][0][0].start() if i + 1 < len(sequencias) else len(texto)
+        raio = _notam_raio_nm(texto[seq[-1][0].end():fim_trecho]) if len(coords) == 1 else None
+        if raio:
+            geo["circulos"].append({"lat": coords[0]["lat"], "lon": coords[0]["lon"], "raio_nm": raio})
+        else:
+            for c in coords:
+                if not any(p["ref"] == c["ref"] for p in geo["pontos"]):
+                    geo["pontos"].append(c)
     return geo
 
 
