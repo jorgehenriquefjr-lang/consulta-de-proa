@@ -10,10 +10,12 @@ from datetime import datetime, timezone
 import firebase_admin
 import requests
 from dotenv import load_dotenv
-from firebase_admin import auth as firebase_auth
+from cachecontrol import CacheControl
 from firebase_admin import credentials, firestore
 from flask import Flask, Response, g, jsonify, request
 from flask_cors import CORS
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token as google_id_token
 
 # Em produção (Render) as variáveis vêm do painel; localmente, do .env ao lado
 # deste arquivo (nunca commitado — está no .gitignore).
@@ -40,9 +42,19 @@ try:
 except Exception:
     db = None
 
-# A validação do login precisa do app Firebase mesmo se o Firestore falhar.
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(options=FIREBASE_OPTIONS)
+# Valida o token só com as chaves públicas do Google (com cache): não depende
+# de credencial de serviço, que é opcional neste backend.
+_google_request = GoogleRequest(session=CacheControl(requests.Session()))
+FIREBASE_ISSUER = f"https://securetoken.google.com/{FIREBASE_PROJECT_ID}"
+
+
+def validar_token_firebase(token: str) -> dict:
+    dados = google_id_token.verify_firebase_token(
+        token, _google_request, audience=FIREBASE_PROJECT_ID, clock_skew_in_seconds=10
+    )
+    if dados.get("iss") != FIREBASE_ISSUER or not dados.get("sub"):
+        raise ValueError("Emissor do token inválido.")
+    return dados
 
 
 @app.before_request
@@ -54,13 +66,13 @@ def exigir_login():
     if not cabecalho.startswith("Bearer "):
         return jsonify({"error": "Login necessário."}), 401
     try:
-        dados = firebase_auth.verify_id_token(cabecalho[7:].strip(), clock_skew_seconds=10)
+        dados = validar_token_firebase(cabecalho[7:].strip())
     except Exception as erro:
         app.logger.warning("Falha ao validar login: %s", type(erro).__name__)
         return jsonify({"error": "Sessão inválida ou expirada.", "codigo": type(erro).__name__}), 401
     if dados.get("aprovado") is not True:
         return jsonify({"error": "Usuário sem acesso autorizado."}), 403
-    g.usuario = (dados.get("email") or dados.get("uid") or "").split("@", 1)[0]
+    g.usuario = (dados.get("email") or dados.get("sub") or "").split("@", 1)[0]
     return None
 
 
