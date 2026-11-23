@@ -11,3 +11,7 @@ services:
         sync: false
       - key: REDEMET_API_KEY
         sync: false
+      - key: AISWEB_API_KEY
+        sync: false
+      - key: AISWEB_API_PASS
+        sync: false

@@ -311,7 +311,12 @@ def parse_route(rota: str):
             unknown_tokens.append(ident)
 
     fix_idents = sorted({ident for ident, kind in parsed_tokens if kind == "fix"})
-    fix_coords = lookup_fixes(fix_idents)
+    try:
+        fix_coords = lookup_fixes(fix_idents)
+    except (requests.RequestException, ValueError):
+        # Base de fixos do DECEA fora do ar: traça o que der (coordenadas)
+        # e devolve os fixos como não resolvidos, em vez de falhar a rota toda.
+        fix_coords = {}
 
     pontos = []
     nao_resolvidos = list(unknown_tokens)
@@ -598,6 +603,16 @@ def buscar_proa():
     declinacao = magnetic_declination(destino["lat"], destino["lon"])
     proa_magnetica = (proa_verdadeira - declinacao) % 360
 
+    # Proa de volta (do destino para a origem): rumo inicial do círculo máximo
+    # no sentido inverso, com a declinação da origem (onde o piloto vai chegar).
+    _, retorno_verdadeira = great_circle(destino["lat"], destino["lon"], origem["lat"], origem["lon"])
+    declinacao_origem = magnetic_declination(origem["lat"], origem["lon"])
+    retorno_magnetica = (retorno_verdadeira - declinacao_origem) % 360
+
+    matricula = re.sub(r"[^A-Z0-9-]", "", (request.args.get("matricula") or "").upper())[:10]
+    observacao = (request.args.get("obs") or "").strip()[:200]
+    operador = (request.args.get("operador") or "").strip()[:40]
+
     resultado = {
         "origem": origem,
         "destino": destino,
@@ -605,6 +620,12 @@ def buscar_proa():
         "proa_verdadeira": round(proa_verdadeira, 1),
         "declinacao_magnetica": round(declinacao, 2),
         "proa_magnetica": round(proa_magnetica, 1),
+        "proa_retorno_verdadeira": round(retorno_verdadeira, 1),
+        "proa_retorno_magnetica": round(retorno_magnetica, 1),
+        "declinacao_origem": round(declinacao_origem, 2),
+        "matricula": matricula,
+        "observacao": observacao,
+        "operador": operador,
         "consultado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
@@ -734,6 +755,213 @@ def historico():
         .stream()
     )
     return jsonify({"resultados": [d.to_dict() for d in docs]})
+
+
+# ====== Declinação magnética avulsa (usada por medir, radial/DME e rota) ======
+@app.route("/api/declinacao")
+def declinacao():
+    try:
+        lat = float(request.args.get("lat"))
+        lon = float(request.args.get("lon"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Informe lat e lon em graus decimais."}), 400
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return jsonify({"error": "Coordenada fora do intervalo."}), 400
+    return jsonify({"lat": lat, "lon": lon, "declinacao": round(magnetic_declination(lat, lon), 2)})
+
+
+# ====== Busca por nome/cidade na base do ROTAER (autocomplete) ======
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto or "") if unicodedata.category(c) != "Mn"
+    ).upper()
+
+
+_ROTAER_INDEX = [
+    (icao, _sem_acento(f"{icao} {d.get('name', '')} {d.get('city', '')} {d.get('state', '')}"), d)
+    for icao, d in ROTAER_BACKUP.items()
+]
+
+
+@app.route("/api/buscar_nome")
+def buscar_nome():
+    q = _sem_acento((request.args.get("q") or "").strip())
+    if len(q) < 2:
+        return jsonify({"resultados": []})
+    termos = q.split()
+    resultados = []
+    for icao, chave, d in _ROTAER_INDEX:
+        if all(t in chave for t in termos):
+            cidade = _sem_acento(d.get("city", ""))
+            nome = _sem_acento(d.get("name", ""))
+            # Prioriza: indicativo exato > cidade exata > indicativo/nome/cidade
+            # começando com o termo > contém. Empate: mais perto de SBNV primeiro.
+            if icao == q:
+                score = 0
+            elif cidade == q:
+                score = 1
+            elif icao.startswith(q) or nome.startswith(q) or cidade.startswith(q):
+                score = 2
+            else:
+                score = 3
+            dist, _ = great_circle(ORIGEM["lat"], ORIGEM["lon"], d.get("lat", 0), d.get("lon", 0))
+            resultados.append((score, dist, icao, d))
+    resultados.sort(key=lambda r: (r[0], r[1]))
+    resultados = [(s, icao, d) for s, _, icao, d in resultados]
+    return jsonify({
+        "resultados": [
+            {"icao": icao, "name": d.get("name"), "city": d.get("city"), "state": d.get("state"),
+             "lat": d.get("lat"), "lon": d.get("lon")}
+            for _, icao, d in resultados[:20]
+        ]
+    })
+
+
+# ====== Camadas vetoriais do GeoAISWEB (WFS): espaço aéreo, fixos etc. ======
+WFS_LAYER_RE = re.compile(r"^ICA:[A-Za-z0-9_]{1,60}$")
+_wfs_cache = {}  # (layer, bbox) -> (expira_em, geojson)
+WFS_CACHE_TTL = 6 * 3600  # dados mudam por ciclo AIRAC (28 dias); 6h é folga segura
+
+
+def fetch_wfs_layer(layer: str, bbox: tuple):
+    key = (layer, bbox)
+    now = time.time()
+    with _cache_lock:
+        cached = _wfs_cache.get(key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    # WFS 1.0.0: BBOX e coordenadas de saída na ordem lon,lat (sem a inversão
+    # de eixos do EPSG:4326 que o 1.1.0/2.0 aplicam).
+    params = {
+        "service": "WFS",
+        "version": "1.0.0",
+        "request": "GetFeature",
+        "typeName": layer,
+        "outputFormat": "application/json",
+        "srsName": "EPSG:4326",
+        "maxFeatures": "3000",
+        "bbox": ",".join(f"{v:.4f}" for v in bbox),
+    }
+    resp = requests.get(FIXES_WFS_URL, params=params, timeout=20)
+    resp.raise_for_status()
+    data = resp.json()
+    with _cache_lock:
+        _wfs_cache[key] = (now + WFS_CACHE_TTL, data)
+    return data
+
+
+@app.route("/api/wfs")
+def wfs():
+    layer = (request.args.get("layer") or "").strip()
+    if not WFS_LAYER_RE.match(layer):
+        return jsonify({"error": "Camada inválida (use ICA:NOME)."}), 400
+    try:
+        bbox = tuple(float(v) for v in (request.args.get("bbox") or "").split(","))
+        if len(bbox) != 4:
+            raise ValueError
+    except ValueError:
+        return jsonify({"error": "bbox inválido. Use minLon,minLat,maxLon,maxLat."}), 400
+    # Arredonda pra 0.5° (melhora o cache entre usuários e limita o tamanho)
+    bbox = (
+        math.floor(bbox[0] * 2) / 2, math.floor(bbox[1] * 2) / 2,
+        math.ceil(bbox[2] * 2) / 2, math.ceil(bbox[3] * 2) / 2,
+    )
+    if (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > 400:
+        return jsonify({"error": "Área grande demais; aproxime o mapa."}), 400
+    try:
+        data = fetch_wfs_layer(layer, bbox)
+    except (requests.RequestException, ValueError) as e:
+        return jsonify({"error": f"Falha ao consultar o GeoAISWEB: {e}"}), 502
+    return jsonify(data)
+
+
+# ====== NOTAM (API oficial do AISWEB; precisa de chave gratuita do DECEA) ======
+AISWEB_API_KEY = os.environ.get("AISWEB_API_KEY", "")
+AISWEB_API_PASS = os.environ.get("AISWEB_API_PASS", "")
+_notam_cache = {}
+NOTAM_CACHE_TTL = 15 * 60
+
+
+# Linha Q do NOTAM termina com centro + raio: ".../1638S04921W005" (raio em NM)
+NOTAM_Q_RE = re.compile(r"(\d{4}[NS]\d{5}[EW])(\d{3})\b")
+# Coordenadas citadas no texto (campo E), com ou sem segundos, com ou sem espaço
+NOTAM_COORD_RE = re.compile(r"\b(\d{4}(?:\d{2})?(?:[.,]\d+)?[NS])\s?(\d{5}(?:\d{2})?(?:[.,]\d+)?[EW])\b")
+
+
+def extrair_geo_notam(campos: dict, texto: str):
+    """Extrai a localização plotável de um NOTAM: centro/raio da linha Q (em
+    qualquer campo que a contenha) e as coordenadas citadas no texto."""
+    geo = {"centro": None, "raio_nm": None, "pontos": []}
+    for valor in campos.values():
+        m = NOTAM_Q_RE.search(valor or "")
+        if m and "/" in (valor or ""):
+            ll = parse_fpl_coord(m.group(1))
+            if ll:
+                geo["centro"] = {"lat": ll[0], "lon": ll[1]}
+                geo["raio_nm"] = int(m.group(2))
+                break
+    vistos = set()
+    for lat_s, lon_s in NOTAM_COORD_RE.findall(texto or ""):
+        token = re.sub(r"[.,]\d+", "", lat_s) + re.sub(r"[.,]\d+", "", lon_s)
+        ll = parse_fpl_coord(token)
+        if ll and token not in vistos:
+            vistos.add(token)
+            geo["pontos"].append({"lat": ll[0], "lon": ll[1], "ref": token})
+    return geo
+
+
+def fetch_notam(icao: str):
+    import xml.etree.ElementTree as ET
+
+    now = time.time()
+    with _cache_lock:
+        cached = _notam_cache.get(icao)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    if not (AISWEB_API_KEY and AISWEB_API_PASS):
+        raise RuntimeError("NOTAM indisponível: configure AISWEB_API_KEY e AISWEB_API_PASS no servidor.")
+
+    resp = requests.get(
+        "https://aisweb.decea.mil.br/api/",
+        params={"apiKey": AISWEB_API_KEY, "apiPass": AISWEB_API_PASS, "area": "notam", "icaocode": icao},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    root = ET.fromstring(resp.content)
+    itens = []
+    for item in root.iter("item"):
+        campos = {child.tag: (child.text or "").strip() for child in item}
+        texto = campos.get("e") or ""
+        itens.append({
+            "numero": campos.get("n") or campos.get("number") or "",
+            "inicio": campos.get("b") or "",
+            "fim": campos.get("c") or "",
+            "periodo": campos.get("d") or "",
+            "texto": texto,
+            "limite_inf": campos.get("f") or "",
+            "limite_sup": campos.get("g") or "",
+            "geo": extrair_geo_notam(campos, texto),
+        })
+    resultado = {"icao": icao, "notams": itens}
+    with _cache_lock:
+        _notam_cache[icao] = (now + NOTAM_CACHE_TTL, resultado)
+    return resultado
+
+
+@app.route("/api/notam")
+def notam():
+    icao = (request.args.get("icao") or "").strip().upper()
+    if not ICAO_RE.match(icao):
+        return jsonify({"error": "IND LOC inválido."}), 400
+    try:
+        return jsonify(fetch_notam(icao))
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 503
+    except (requests.RequestException, Exception) as e:  # XML malformado também cai aqui
+        return jsonify({"error": f"Falha ao consultar NOTAM: {e}"}), 502
 
 
 # ====== Keep-alive: evita o cold start do plano gratuito do Render ======

@@ -1,185 +1,348 @@
 <!doctype html>
-<html lang="pt-br">
+<html lang="pt-br" data-theme="light">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Consulta de Proa - SBNV</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <title>Consulta de Proa · SBNV</title>
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app-shell">
+    <!-- ====== Barra superior ====== -->
     <header class="toolbar">
       <div class="brand">
-        <span class="brand-icon">✈</span>
+        <span class="brand-icon" aria-hidden="true">✈</span>
         <div class="brand-text">
           <strong>Consulta de Proa</strong>
           <span id="origem-brand">Origem: SBNV — Goiânia/GO</span>
         </div>
       </div>
-      <nav class="toolbar-tools">
-        <button type="button" class="tool-btn active" data-tab="buscar">⌕ <span class="tool-btn-label">Buscar</span></button>
-        <button type="button" class="tool-btn" data-tab="rota">✈ <span class="tool-btn-label">Rota FPL</span></button>
-        <button type="button" class="tool-btn" data-tab="medir">📏 <span class="tool-btn-label">Medir</span></button>
-        <button type="button" class="tool-btn" data-tab="camadas">☰ <span class="tool-btn-label">Camadas</span></button>
-        <button type="button" class="tool-btn" data-tab="historico">🕐 <span class="tool-btn-label">Histórico</span></button>
+
+      <nav class="toolbar-tools" aria-label="Ferramentas">
+        <button type="button" class="tool-btn active" data-tab="buscar" title="Buscar (Alt+1)"><span class="ico">⌕</span><span class="tool-btn-label">Buscar</span></button>
+        <button type="button" class="tool-btn" data-tab="rota" title="Rota FPL (Alt+2)"><span class="ico">✈</span><span class="tool-btn-label">Rota FPL</span></button>
+        <button type="button" class="tool-btn" data-tab="medir" title="Medir (Alt+3)"><span class="ico">📏</span><span class="tool-btn-label">Medir</span></button>
+        <button type="button" class="tool-btn" data-tab="camadas" title="Camadas (Alt+4)"><span class="ico">◧</span><span class="tool-btn-label">Camadas</span></button>
+        <button type="button" class="tool-btn" data-tab="historico" title="Histórico (Alt+5)"><span class="ico">🕐</span><span class="tool-btn-label">Histórico</span></button>
+        <button type="button" class="tool-btn" data-tab="ajustes" title="Ajustes (Alt+6)"><span class="ico">⚙</span><span class="tool-btn-label">Ajustes</span></button>
       </nav>
+
+      <div class="toolbar-right">
+        <div class="utc-clock" title="Hora UTC">
+          <span id="utc-time">--:--:--</span><small>UTC</small>
+        </div>
+        <button type="button" id="theme-toggle" class="icon-btn" title="Alternar tema claro/escuro (T)" aria-label="Alternar tema">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
     </header>
 
     <div class="map-stage">
+      <!-- ====== Painel lateral ====== -->
       <aside id="tool-panel" class="tool-panel">
         <div class="tool-panel-header">
-          <div class="tool-panel-tabs">
-            <button type="button" class="tool-tab active" data-tab="buscar" title="Buscar">⌕</button>
-            <button type="button" class="tool-tab" data-tab="rota" title="Rota FPL">✈</button>
-            <button type="button" class="tool-tab" data-tab="medir" title="Medir">📏</button>
-            <button type="button" class="tool-tab" data-tab="camadas" title="Camadas">☰</button>
-            <button type="button" class="tool-tab" data-tab="selecionadas" title="Selecionadas">✓</button>
-            <button type="button" class="tool-tab" data-tab="historico" title="Histórico">🕐</button>
-          </div>
-          <button id="tool-panel-close" class="layers-close-btn" type="button" aria-label="Fechar">✕</button>
+          <h1 id="panel-title">Buscar</h1>
+          <button id="tool-panel-close" class="icon-btn" type="button" aria-label="Recolher painel" title="Recolher painel (Esc)">⟨</button>
         </div>
 
         <div class="tool-panel-body">
-          <div id="tab-buscar" class="tool-tab-panel">
-            <!-- Origem customizável desativada por enquanto (sistema fixo em SBNV);
-                 código mantido pronto pra reativar (só tirar o "hidden" abaixo). -->
+
+          <!-- ===================== BUSCAR ===================== -->
+          <section id="tab-buscar" class="tool-tab-panel">
+            <!-- Origem customizável (desativada: sistema fixo em SBNV). Remova "hidden" pra reativar. -->
             <div id="origin-box" class="origin-box hidden">
-              <span class="origin-label">Origem</span>
+              <span class="field-label">Origem</span>
               <div class="origin-row">
-                <div class="input-wrap origin-input-wrap">
-                  <span class="input-icon">✈</span>
-                  <input id="origem-input" placeholder="SBNV (padrão)" maxlength="24" autocomplete="off">
-                </div>
+                <input id="origem-input" class="mono-input" placeholder="SBNV (padrão)" maxlength="24" autocomplete="off">
                 <label class="origin-fix" title="Salva esta origem para as próximas buscas">
-                  <input type="checkbox" id="origem-fixar">
-                  <span>Fixar</span>
+                  <input type="checkbox" id="origem-fixar"><span>Fixar</span>
                 </label>
               </div>
             </div>
-            <form id="search-form">
-              <div class="input-wrap">
-                <span class="input-icon">⌕</span>
-                <input id="icao-input" placeholder="IND LOC (ex.: SBGR) ou coordenada" maxlength="24" autocomplete="off" required>
-              </div>
-              <button type="submit"><span>Buscar</span></button>
-            </form>
-            <div id="saved-points" class="saved-points">
-              <button type="button" class="chip" data-coord="164527S0492608W">Abadia de Goiás</button>
-              <button type="button" class="chip" data-coord="164110S0491818W">Hipódromo</button>
-              <button type="button" class="chip" data-coord="163800S0492800W">Portão Trindade</button>
-            </div>
-            <p id="status" class="status"></p>
 
+            <form id="search-form" autocomplete="off">
+              <div class="search-wrap">
+                <span class="input-icon">⌕</span>
+                <input id="icao-input" class="mono-input big" placeholder="SBGR, cidade, coordenada ou radial" maxlength="40" required
+                       aria-autocomplete="list" aria-controls="suggest-list">
+                <kbd class="kbd-hint">/</kbd>
+                <ul id="suggest-list" class="suggest-list hidden" role="listbox"></ul>
+              </div>
+              <button type="submit" class="btn-primary">Buscar</button>
+            </form>
+
+            <details class="formats-help">
+              <summary>Formatos aceitos</summary>
+              <ul>
+                <li><code>SBGR</code> indicativo de localidade</li>
+                <li><code>Rio Verde</code> nome do aeródromo ou cidade</li>
+                <li><code>1630S04915W</code> coordenada do Campo 18 (com ou sem segundos)</li>
+                <li><code>-16.63, -49.35</code> coordenada decimal</li>
+                <li><code>270/15</code> radial magnética / distância (NM) a partir da origem</li>
+                <li>Clique com o botão direito no mapa (ou toque longo) para consultar um ponto</li>
+              </ul>
+            </details>
+
+            <details id="registro-box" class="registro-box">
+              <summary>Registro da assistência <small>(opcional)</small></summary>
+              <div class="registro-grid">
+                <label>Matrícula<input id="matricula-input" class="mono-input" placeholder="PR-ABC" maxlength="10"></label>
+                <label>Observação<input id="obs-input" placeholder="Ex.: solicitou proa para retorno" maxlength="200"></label>
+              </div>
+            </details>
+
+            <div class="chips-block">
+              <span class="field-label">Pontos salvos</span>
+              <div id="saved-points" class="saved-points">
+                <button type="button" class="chip" data-coord="164527S0492608W">Abadia de Goiás</button>
+                <button type="button" class="chip" data-coord="164110S0491818W">Hipódromo</button>
+                <button type="button" class="chip" data-coord="163800S0492800W">Portão Trindade</button>
+              </div>
+            </div>
+
+            <p id="status" class="status" role="status"></p>
+
+            <!-- ====== Resultado ====== -->
             <section id="result-card" class="result hidden">
               <div class="result-header">
-                <h2 id="result-name"></h2>
-                <p id="result-sub" class="subtitle"></p>
-              </div>
-              <div class="grid">
-                <div class="stat stat-primary">
-                  <span class="stat-icon">🧭</span>
-                  <span class="label">Proa Magnética</span>
-                  <span id="result-proa" class="value"></span>
+                <div>
+                  <h2 id="result-name"></h2>
+                  <p id="result-sub" class="subtitle"></p>
                 </div>
-                <div class="stat stat-primary">
-                  <span class="stat-icon">📏</span>
+                <span id="result-cat" class="badge hidden"></span>
+              </div>
+
+              <div class="hero">
+                <div class="hero-item hero-main">
+                  <span class="label">Proa magnética</span>
+                  <span id="result-proa" class="hero-value"></span>
+                  <span id="result-true" class="hero-sub"></span>
+                </div>
+                <div class="hero-item">
                   <span class="label">Distância</span>
-                  <span id="result-milhas" class="value"></span>
+                  <span id="result-milhas" class="hero-value"></span>
+                  <span id="result-km" class="hero-sub"></span>
                 </div>
-                <div class="stat">
-                  <span class="label">Proa Verdadeira</span>
-                  <span id="result-true" class="value-sm"></span>
+                <div class="hero-item">
+                  <span class="label">Proa de volta</span>
+                  <span id="result-volta" class="hero-value"></span>
+                  <span class="hero-sub">para a origem</span>
                 </div>
-                <div class="stat">
-                  <span class="label">Declinação Magnética</span>
-                  <span id="result-decl" class="value-sm"></span>
-                </div>
-              </div>
-
-              <div id="metar-taf-box" class="metar-taf-box hidden">
-                <div class="metar-taf-item">
-                  <span class="label">METAR/SPECI</span>
-                  <p id="metar-text" class="mono-text"></p>
-                </div>
-                <div class="metar-taf-item">
-                  <span class="label">TAF</span>
-                  <p id="taf-text" class="mono-text"></p>
+                <div class="hero-item">
+                  <span class="label">Tempo estimado</span>
+                  <span id="result-ete" class="hero-value"></span>
+                  <span id="result-ete-sub" class="hero-sub"></span>
                 </div>
               </div>
 
-              <div id="avisos-box" class="metar-taf-box hidden">
-                <div class="metar-taf-item">
-                  <span class="label">Aviso de Aeródromo</span>
-                  <p id="aviso-aerodromo-text" class="mono-text mono-text-warn"></p>
-                </div>
-                <div class="metar-taf-item">
-                  <span class="label">SIGMET</span>
-                  <p id="sigmet-text" class="mono-text mono-text-warn"></p>
-                </div>
-                <div class="metar-taf-item">
-                  <span class="label">AIRMET</span>
-                  <p id="airmet-text" class="mono-text mono-text-warn"></p>
-                </div>
-                <div class="metar-taf-item">
-                  <span class="label">GAMET</span>
-                  <p id="gamet-text" class="mono-text mono-text-warn"></p>
-                </div>
+              <div class="result-meta">
+                <span>Declinação <b id="result-decl"></b></span>
+                <span>Destino <b id="result-coord" class="mono"></b></span>
               </div>
+
+              <div class="result-actions">
+                <button type="button" id="btn-copiar" class="btn-ghost" title="Copiar fraseologia (C)">⧉ Copiar</button>
+                <button type="button" id="btn-centralizar" class="btn-ghost">◎ Centralizar</button>
+                <button type="button" id="btn-salvar-ponto" class="btn-ghost">★ Salvar ponto</button>
+                <a id="btn-aisweb" class="btn-ghost hidden" target="_blank" rel="noopener">AISWEB ↗</a>
+              </div>
+
+              <details class="section" open>
+                <summary>Vento e proa corrigida</summary>
+                <div class="wind-grid">
+                  <label>Vel. aerodinâmica (TAS)<span class="inp-unit"><input id="tas-input" type="number" min="40" max="600" step="5" value="100"><i>kt</i></span></label>
+                  <label>Vento de (°V)<span class="inp-unit"><input id="wind-dir-input" type="number" min="0" max="360" step="10" placeholder="—"><i>°</i></span></label>
+                  <label>Intensidade<span class="inp-unit"><input id="wind-spd-input" type="number" min="0" max="200" step="1" placeholder="0"><i>kt</i></span></label>
+                </div>
+                <div class="wind-tools">
+                  <button type="button" id="btn-vento-metar" class="btn-ghost small">Usar vento do METAR</button>
+                  <span id="wind-src" class="hint"></span>
+                </div>
+                <div id="wind-result" class="wind-result"></div>
+              </details>
+
+              <details id="airspace-section" class="section" open>
+                <summary>Espaço aéreo na rota <span id="airspace-count" class="count"></span></summary>
+                <div id="airspace-list" class="airspace-list"><p class="hint">—</p></div>
+              </details>
+
+              <details id="metar-taf-box" class="section hidden" open>
+                <summary>METAR / TAF</summary>
+                <span class="label">METAR/SPECI</span>
+                <p id="metar-text" class="mono-text"></p>
+                <span class="label">TAF</span>
+                <p id="taf-text" class="mono-text"></p>
+              </details>
+
+              <details id="notam-box" class="section hidden">
+                <summary>NOTAM <span id="notam-count" class="count"></span></summary>
+                <div id="notam-list"></div>
+              </details>
+
+              <details id="avisos-box" class="section hidden">
+                <summary>Avisos meteorológicos <span id="avisos-count" class="count"></span></summary>
+                <span class="label">Aviso de aeródromo</span>
+                <p id="aviso-aerodromo-text" class="mono-text"></p>
+                <span class="label">SIGMET</span>
+                <p id="sigmet-text" class="mono-text"></p>
+                <span class="label">AIRMET</span>
+                <p id="airmet-text" class="mono-text"></p>
+                <span class="label">GAMET</span>
+                <p id="gamet-text" class="mono-text"></p>
+              </details>
+
+              <details class="section">
+                <summary>Nascer e pôr do sol no destino</summary>
+                <div id="sun-box" class="sun-grid"></div>
+              </details>
             </section>
-          </div>
+          </section>
 
-          <div id="tab-rota" class="tool-tab-panel hidden">
-            <h3>Rota do FPL (Campo 15)</h3>
+          <!-- ===================== ROTA FPL ===================== -->
+          <section id="tab-rota" class="tool-tab-panel hidden">
             <form id="rota-form">
-              <div class="input-wrap">
-                <textarea id="rota-input" rows="4" placeholder="Cole o Campo 15 do FPL (ex.: 1622S04930W/N0230F270 IFR DCT MILIX/N0280F300 DCT UGUGA/N0300F310 DCT SEBNO DCT VUNIX/N0230F135 VFR DCT)"></textarea>
+              <label class="field-label" for="rota-input">Campo 15 do FPL</label>
+              <textarea id="rota-input" rows="4" class="mono-input" placeholder="Ex.: N0110A045 DCT 1622S04930W DCT MILIX DCT SEBNO"></textarea>
+              <div class="check-row">
+                <label><input type="checkbox" id="rota-incluir-origem" checked> Partir da origem (<span class="origem-ind">SBNV</span>)</label>
+                <label><input type="checkbox" id="rota-incluir-destino"> Terminar no destino da última busca</label>
               </div>
-              <button type="submit"><span>Traçar rota</span></button>
+              <button type="submit" class="btn-primary">Traçar rota</button>
             </form>
             <p id="rota-status" class="status"></p>
-          </div>
+            <div id="rota-result" class="hidden">
+              <div class="rota-totais" id="rota-totais"></div>
+              <div class="table-wrap">
+                <table class="compact">
+                  <thead><tr><th>Trecho</th><th>PM</th><th>NM</th><th>Acum.</th><th>ETE</th></tr></thead>
+                  <tbody id="rota-body"></tbody>
+                </table>
+              </div>
+              <button type="button" id="btn-rota-copiar" class="btn-ghost">⧉ Copiar navegação</button>
+            </div>
+          </section>
 
-          <div id="tab-medir" class="tool-tab-panel hidden">
-            <h3>Medir distância e rumo</h3>
-            <p class="empty-hint">Clique no mapa pra marcar pontos. Cada clique acrescenta um trecho, mostrando rumo, distância em km e em milhas náuticas.</p>
-            <button id="medir-limpar" type="button">Limpar medição</button>
-          </div>
-
-          <div id="tab-camadas" class="tool-tab-panel hidden">
-            <input id="layers-search" class="layers-search" placeholder="Buscar camada...">
-            <div id="layers-tree" class="layers-tree"></div>
-          </div>
-
-          <div id="tab-selecionadas" class="tool-tab-panel hidden">
-            <ul id="layers-selected-list" class="layers-selected-list"></ul>
-            <p id="layers-selected-empty" class="empty-hint">Nenhuma camada ativa.</p>
-          </div>
-
-          <div id="tab-historico" class="tool-tab-panel hidden">
-            <h3>Histórico de consultas</h3>
+          <!-- ===================== MEDIR ===================== -->
+          <section id="tab-medir" class="tool-tab-panel hidden">
+            <p class="hint">Clique no mapa para marcar pontos. Cada trecho mostra a proa magnética e a distância.</p>
+            <div class="btn-row">
+              <button id="medir-desfazer" type="button" class="btn-ghost">↶ Desfazer</button>
+              <button id="medir-limpar" type="button" class="btn-ghost">✕ Limpar</button>
+            </div>
             <div class="table-wrap">
-              <table>
+              <table class="compact">
+                <thead><tr><th>#</th><th>PM</th><th>PV</th><th>NM</th><th>km</th></tr></thead>
+                <tbody id="medir-body"></tbody>
+              </table>
+            </div>
+            <p id="medir-total" class="total-line"></p>
+          </section>
+
+          <!-- ===================== CAMADAS ===================== -->
+          <section id="tab-camadas" class="tool-tab-panel hidden">
+            <h3>Dados vetoriais · GeoAISWEB</h3>
+            <p class="hint">Desenhados sobre a área visível do mapa. Clique numa área para ver os limites.</p>
+            <div id="vector-layers" class="vector-layers"></div>
+
+            <h3>Ativas <span id="layers-active-count" class="count"></span></h3>
+            <ul id="layers-selected-list" class="layers-selected-list"></ul>
+            <p id="layers-selected-empty" class="hint">Nenhuma carta ativa.</p>
+            <div class="opacity-row">
+              <label for="chart-opacity">Opacidade das cartas</label>
+              <input id="chart-opacity" type="range" min="0.2" max="1" step="0.05" value="0.85">
+            </div>
+
+            <h3>Cartas e camadas DECEA</h3>
+            <input id="layers-search" class="layers-search" placeholder="Filtrar (ex.: Anápolis, ENRC L, REA)...">
+            <div id="layers-tree" class="layers-tree"></div>
+          </section>
+
+          <!-- ===================== HISTÓRICO ===================== -->
+          <section id="tab-historico" class="tool-tab-panel hidden">
+            <div class="hist-tools">
+              <input id="hist-filter" placeholder="Filtrar por indicativo, nome, matrícula..." class="layers-search">
+              <div class="btn-row">
+                <button type="button" id="hist-refresh" class="btn-ghost">↻ Atualizar</button>
+                <button type="button" id="hist-csv" class="btn-ghost">⤓ Exportar CSV</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="compact clickable">
                 <thead>
-                  <tr><th>Quando (UTC)</th><th>IND LOC</th><th>Nome</th><th>Proa Mag.</th><th>Milhas</th></tr>
+                  <tr><th>Quando (UTC)</th><th>Destino</th><th>PM</th><th>NM</th><th>Matr.</th></tr>
                 </thead>
                 <tbody id="history-body"></tbody>
               </table>
-              <p id="history-empty" class="empty-hint hidden">Nenhuma consulta ainda — busque um IND LOC acima.</p>
+              <p id="history-empty" class="hint hidden">Nenhuma consulta ainda.</p>
             </div>
-          </div>
+            <p class="hint">Clique numa linha para refazer a consulta.</p>
+          </section>
+
+          <!-- ===================== AJUSTES ===================== -->
+          <section id="tab-ajustes" class="tool-tab-panel hidden">
+            <h3>Operação</h3>
+            <label class="field">Nome do operador (vai no registro)
+              <input id="cfg-operador" maxlength="40" placeholder="Ex.: Jorge">
+            </label>
+            <label class="field">TAS padrão (kt)
+              <input id="cfg-tas" type="number" min="40" max="600" step="5" value="100">
+            </label>
+            <label class="field">Mapa base padrão
+              <select id="cfg-base">
+                <option value="topo">Topográfico</option>
+                <option value="claro">Claro</option>
+                <option value="escuro">Escuro</option>
+                <option value="satelite">Satélite</option>
+              </select>
+            </label>
+            <label class="field">Tema
+              <select id="cfg-tema">
+                <option value="light">Claro</option>
+                <option value="dark">Escuro (turno noturno)</option>
+              </select>
+            </label>
+            <label class="check-line"><input type="checkbox" id="cfg-large"> Números grandes (console / leitura à distância)</label>
+
+            <h3>Pontos salvos por você</h3>
+            <ul id="custom-points-list" class="layers-selected-list"></ul>
+            <p id="custom-points-empty" class="hint">Use “★ Salvar ponto” no resultado de uma busca.</p>
+
+            <h3>Atalhos de teclado</h3>
+            <ul class="shortcuts">
+              <li><kbd>/</kbd> focar a busca</li>
+              <li><kbd>Alt</kbd>+<kbd>1…6</kbd> trocar de aba</li>
+              <li><kbd>C</kbd> copiar o último resultado</li>
+              <li><kbd>T</kbd> alternar tema</li>
+              <li><kbd>Esc</kbd> fechar sugestões / recolher painel</li>
+            </ul>
+
+            <p class="disclaimer">Ferramenta de apoio à prestação de informação. Não substitui as publicações
+              oficiais (AIP, ROTAER, cartas) nem a navegação do piloto. Declinação: modelo WMM (NOAA).
+              Dados aeronáuticos: AISWEB / GeoAISWEB (DECEA) e REDEMET.</p>
+          </section>
         </div>
       </aside>
+
+      <button id="panel-open" class="panel-open hidden" type="button" title="Abrir painel">⟩</button>
 
       <div id="map"></div>
 
       <div class="map-legend-badge">
-        <i class="dot origin"></i> SBNV <i class="dot dest"></i> Destino <i class="dot fix"></i> Fixo
+        <span><i class="dot origin"></i><span class="origem-ind">SBNV</span></span>
+        <span><i class="dot dest"></i>Destino</span>
+        <span><i class="dot fix"></i>Fixo</span>
+        <span><i class="dot notam"></i>NOTAM</span>
+        <span id="cursor-coord" class="cursor-coord mono"></span>
       </div>
+
+      <div id="toast" class="toast hidden" role="status"></div>
     </div>
   </div>
 
