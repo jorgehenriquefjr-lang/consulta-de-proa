@@ -55,8 +55,9 @@ def exigir_login():
         return jsonify({"error": "Login necessário."}), 401
     try:
         dados = firebase_auth.verify_id_token(cabecalho[7:].strip(), clock_skew_seconds=10)
-    except Exception:
-        return jsonify({"error": "Sessão inválida ou expirada."}), 401
+    except Exception as erro:
+        app.logger.warning("Falha ao validar login: %s", type(erro).__name__)
+        return jsonify({"error": "Sessão inválida ou expirada.", "codigo": type(erro).__name__}), 401
     if dados.get("aprovado") is not True:
         return jsonify({"error": "Usuário sem acesso autorizado."}), 403
     g.usuario = (dados.get("email") or dados.get("uid") or "").split("@", 1)[0]
