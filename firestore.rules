@@ -1,11 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Histórico de consultas: leitura pública, escrita somente pelas Cloud
-    // Functions (Admin SDK ignora estas regras).
-    match /consultas/{doc} {
-      allow read: if true;
-      allow write: if false;
+    // Acesso somente pelo backend (Admin SDK), que exige login.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
